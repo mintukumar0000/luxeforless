@@ -13,6 +13,7 @@ import { BodyEstimates } from "@/lib/fit-scoring";
 import { SizeProfile } from "@/lib/size-options";
 import { productMatchesFocus, vtoCategoryForProduct, TryOnFocus } from "@/lib/try-on-focus";
 import { SizeIntelligence } from "@/lib/fit-intelligence";
+import { GARMENT_COLOR_OPTIONS, tryOnCacheKey } from "@/lib/instant-preview";
 import { APP_NAME } from "@/lib/utils";
 import {
   pollTryOnJob,
@@ -70,6 +71,7 @@ export default function MirrorPage() {
   const [tryOnProgress, setTryOnProgress] = useState<string | null>(null);
   const [savingOutfit, setSavingOutfit] = useState(false);
   const [outfitSaved, setOutfitSaved] = useState(false);
+  const [tryOnCache, setTryOnCache] = useState<Record<string, string>>({});
 
   const handleConsent = async () => {
     await startSession();
@@ -149,6 +151,14 @@ export default function MirrorPage() {
         alert(data.error || `Try-on failed (${res.status})`);
         return;
       }
+
+      const colorId =
+        GARMENT_COLOR_OPTIONS.find((c) => c.label.toLowerCase() === product.color?.toLowerCase())
+          ?.id ?? "black";
+      setTryOnCache((prev) => ({
+        ...prev,
+        [tryOnCacheKey(product.id, colorId)]: data.resultUrl,
+      }));
 
       setTryOnState({
         resultUrl: data.resultUrl,
@@ -319,12 +329,13 @@ export default function MirrorPage() {
       {tryOnState && (
         <TryOnResultView
           resultUrl={tryOnState.resultUrl}
+          product={tryOnState.product}
           productName={tryOnState.productName}
           price={tryOnState.price}
           fitResult={tryOnState.fitResult}
           userDeclaredSize={tryOnState.userDeclaredSize}
-          sizeIntelligence={tryOnState.sizeIntelligence}
           processingTimeMs={tryOnState.processingTimeMs}
+          tryOnCache={tryOnCache}
           onClose={() => setTryOnState(null)}
           onAddToOutfit={() => {
             handleSelectProduct(tryOnState.product);

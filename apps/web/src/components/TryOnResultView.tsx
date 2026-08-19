@@ -78,10 +78,9 @@ export function TryOnResultView({
             <AnimatedTryOnImage
               src={swap.displayUrl}
               alt="Try-on result"
-              imageStyle={swap.imageStyle}
               swapFlash={swap.swapFlash}
               isApproximateColor={swap.isApproximateColor}
-              recoloring={swap.recoloring}
+              processing={swap.processing}
               category={swap.category}
             />
             <p className="text-xs text-stone-400 mt-2 text-center">

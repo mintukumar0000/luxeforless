@@ -11,6 +11,7 @@ interface FitScorePanelProps {
   price: number;
   userDeclaredSize?: string | null;
   sizeIntelligence?: SizeIntelligence | null;
+  animateKey?: string;
 }
 
 export function FitScorePanel({
@@ -19,6 +20,7 @@ export function FitScorePanel({
   price,
   userDeclaredSize,
   sizeIntelligence,
+  animateKey,
 }: FitScorePanelProps) {
   return (
     <div className="bg-white rounded-2xl border border-stone-200 p-5 space-y-4">
@@ -27,8 +29,8 @@ export function FitScorePanel({
         <p className="text-stone-500 text-sm">{formatPrice(price)}</p>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="relative w-20 h-20">
+      <div className="flex items-center gap-4" key={animateKey}>
+        <div className="relative w-20 h-20 transition-transform duration-500 ease-out">
           <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
             <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e7e5e4" strokeWidth="3" />
             <circle
@@ -40,9 +42,10 @@ export function FitScorePanel({
               strokeWidth="3"
               strokeDasharray={`${fitResult.fitScore} 100`}
               strokeLinecap="round"
+              className="transition-all duration-500 ease-out"
             />
           </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold">
+          <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold transition-all duration-300">
             {fitResult.fitScore}%
           </span>
         </div>

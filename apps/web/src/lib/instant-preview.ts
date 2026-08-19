@@ -7,8 +7,9 @@ export interface ColorOption {
 }
 
 export const GARMENT_COLOR_OPTIONS: ColorOption[] = [
-  { id: "black", label: "Black", swatch: "#1a1a1a" },
-  { id: "white", label: "White", swatch: "#f2f2f2" },
+  { id: "black", label: "Black", swatch: "#141414" },
+  { id: "white", label: "White", swatch: "#ececec" },
+  { id: "red", label: "Red", swatch: "#b91c1c" },
   { id: "navy", label: "Navy", swatch: "#1e3a5f" },
   { id: "forest", label: "Forest", swatch: "#2d5016" },
   { id: "burgundy", label: "Burgundy", swatch: "#6b1d3a" },
@@ -19,54 +20,45 @@ export function colorOptionById(id: string): ColorOption {
   return GARMENT_COLOR_OPTIONS.find((c) => c.id === id) ?? GARMENT_COLOR_OPTIONS[0];
 }
 
-/** Relative garment scale vs recommended AI size — visible but realistic. */
+/** Garment fit scale relative to AI recommended size. Free Size = loose oversized. */
 export function sizeToPreviewScale(size: string): number {
   const map: Record<string, number> = {
-    XS: 0.9,
-    S: 0.95,
+    XS: 0.88,
+    S: 0.94,
     M: 1,
-    L: 1.05,
-    XL: 1.1,
-    XXL: 1.15,
-    "Free Size": 1,
-    "28": 0.91,
-    "30": 0.95,
+    L: 1.06,
+    XL: 1.12,
+    XXL: 1.18,
+    "Free Size": 1.24,
+    "28": 0.89,
+    "30": 0.94,
     "32": 1,
-    "34": 1.05,
-    "36": 1.1,
-    "38": 1.14,
-    "40": 1.18,
+    "34": 1.06,
+    "36": 1.12,
+    "38": 1.17,
+    "40": 1.22,
   };
   return map[size] ?? 1;
 }
 
-export interface GarmentSizeTransform {
-  scaleX: number;
-  scaleY: number;
-  originY: string;
-}
-
-/** Scale only the garment region — anchored at chest/waist/full body. */
-export function sizeToGarmentTransform(
-  size: string,
-  category: string,
-  recommendedSize: string
-): GarmentSizeTransform {
-  const selected = sizeToPreviewScale(size);
-  const ref = sizeToPreviewScale(recommendedSize);
-  const ratio = selected / ref;
-
-  let originY = "50%";
-  if (category === "tops") originY = "30%";
-  else if (category === "bottoms") originY = "72%";
-
-  // Width grows slightly less than height for a natural "size up" look
-  const scaleY = ratio;
-  const scaleX = 1 + (ratio - 1) * 0.75;
-
-  return { scaleX, scaleY, originY };
-}
-
 export function tryOnCacheKey(productId: string, colorId: string): string {
   return `${productId}::${colorId}`;
+}
+
+/** Ensure Free Size always appears in instant swap chips. */
+export function sizesWithFreeSize(sizes: string[], category: string): string[] {
+  const free = "Free Size";
+  const numeric = sizes.some((s) => /^\d+$/.test(s));
+  const letter = sizes.some((s) => !/^\d+$/.test(s));
+  const out = [...sizes];
+  if (!out.includes(free)) {
+    if (category === "bottoms" && (numeric || out.length === 0)) out.push(free);
+    else if (category !== "bottoms" && (letter || out.length === 0)) out.push(free);
+  }
+  return out;
+}
+
+export function freeSizeFitHint(size: string): string | null {
+  if (size !== "Free Size") return null;
+  return "One size · loose fit · best for S–L frames";
 }

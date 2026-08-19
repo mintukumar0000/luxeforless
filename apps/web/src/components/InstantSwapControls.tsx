@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { FitResult } from "@/lib/fit-scoring";
 import { analyzeSizeFit, SizeIntelligence } from "@/lib/fit-intelligence";
-import { recolorGarmentOnImage } from "@/lib/garment-recolor";
+import { processGarmentInstantPreview } from "@/lib/garment-instant-preview";
 import {
   GARMENT_COLOR_OPTIONS,
-  colorOptionById,
-  sizeToGarmentTransform,
+  freeSizeFitHint,
+  sizesWithFreeSize,
   tryOnCacheKey,
 } from "@/lib/instant-preview";
 import { cn } from "@/lib/utils";
@@ -28,10 +28,11 @@ interface InstantSwapControlsProps {
 
 function sizesForCategory(category: string, fitResult: FitResult): string[] {
   const fromChart = fitResult.sizeRecommendations.map((r) => r.size);
-  if (category === "bottoms") {
-    return fromChart.filter((s) => /^\d+$/.test(s) || s === "Free Size");
-  }
-  return fromChart.filter((s) => !/^\d+$/.test(s) || s === "Free Size");
+  const filtered =
+    category === "bottoms"
+      ? fromChart.filter((s) => /^\d+$/.test(s) || s === "Free Size")
+      : fromChart.filter((s) => !/^\d+$/.test(s) || s === "Free Size");
+  return sizesWithFreeSize(filtered, category);
 }
 
 export function InstantSwapControls({
@@ -85,8 +86,13 @@ export function InstantSwapControls({
           })}
         </div>
         <p className="text-[11px] text-stone-400">
-          Garment area scales at {category === "bottoms" ? "waist" : category === "tops" ? "chest" : "body"} — skin stays the same.
+          Cloth area grows/shrinks — body & background stay fixed. Free Size = loose oversized fit.
         </p>
+        {freeSizeFitHint(selectedSize) && (
+          <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1">
+            {freeSizeFitHint(selectedSize)}
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -124,7 +130,7 @@ export function InstantSwapControls({
           })}
         </div>
         <p className="text-[11px] text-stone-400">
-          Green dot = full AI render. Others recolor fabric only — logos & skin preserved.
+          Fabric only — white logos stay white. Skin, hair & studio background untouched.
         </p>
       </div>
     </div>
@@ -155,8 +161,8 @@ export function useInstantSwapPreview({
   const [selectedSize, setSelectedSize] = useState(initialSize);
   const [selectedColorId, setSelectedColorId] = useState(initialColorId);
   const [swapFlash, setSwapFlash] = useState(false);
-  const [recoloredUrl, setRecoloredUrl] = useState<string | null>(null);
-  const [recoloring, setRecoloring] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
 
   const triggerFlash = useCallback(() => {
     setSwapFlash(true);
@@ -181,56 +187,64 @@ export function useInstantSwapPreview({
   );
 
   const cachedUrl = tryOnCache[tryOnCacheKey(productId, selectedColorId)];
-  const baseUrl =
-    selectedColorId === initialColorId || cachedUrl ? cachedUrl ?? resultUrl : resultUrl;
-  const needsRecolor = !cachedUrl && selectedColorId !== initialColorId;
+  const sourceUrl =
+    cachedUrl ?? (selectedColorId === initialColorId ? resultUrl : resultUrl);
+  const isDefault =
+    selectedSize === fitResult.recommendedSize &&
+    selectedColorId === initialColorId &&
+    !cachedUrl;
 
   useEffect(() => {
-    if (!needsRecolor) {
-      setRecoloredUrl(null);
-      setRecoloring(false);
+    if (isDefault) {
+      setPreviewUrl(null);
+      setProcessing(false);
       return;
     }
 
     let cancelled = false;
-    setRecoloring(true);
-    const color = colorOptionById(selectedColorId);
+    setProcessing(true);
 
-    recolorGarmentOnImage(baseUrl, color.swatch, category)
+    processGarmentInstantPreview({
+      imageUrl: sourceUrl,
+      category,
+      selectedSize,
+      recommendedSize: fitResult.recommendedSize,
+      colorId: selectedColorId,
+      baseColorId: initialColorId,
+    })
       .then((url) => {
         if (!cancelled) {
-          setRecoloredUrl(url);
-          setRecoloring(false);
+          setPreviewUrl(url);
+          setProcessing(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRecoloredUrl(null);
-          setRecoloring(false);
+          setPreviewUrl(null);
+          setProcessing(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, needsRecolor, selectedColorId, category]);
-
-  const displayUrl = needsRecolor ? recoloredUrl ?? baseUrl : baseUrl;
-  const garmentTransform = sizeToGarmentTransform(
-    selectedSize,
+  }, [
+    sourceUrl,
     category,
-    fitResult.recommendedSize
-  );
+    selectedSize,
+    selectedColorId,
+    fitResult.recommendedSize,
+    initialColorId,
+    isDefault,
+  ]);
 
-  const imageStyle = {
-    transform: `scaleX(${garmentTransform.scaleX}) scaleY(${garmentTransform.scaleY})`,
-    transformOrigin: `50% ${garmentTransform.originY}`,
-    transition: "transform 0.55s cubic-bezier(0.34, 1.56, 0.64, 1)",
-    animation: swapFlash ? "swapPop 0.45s ease-out" : undefined,
-  };
+  const displayUrl = isDefault ? resultUrl : previewUrl ?? sourceUrl;
+  const needsPreview = !isDefault;
 
   const selectedRec = fitResult.sizeRecommendations.find((r) => r.size === selectedSize);
-  const liveFitScore = selectedRec?.matchPercent ?? fitResult.fitScore;
+  const liveFitScore =
+    selectedRec?.matchPercent ??
+    (selectedSize === "Free Size" ? 68 : fitResult.fitScore);
   const liveIntelligence: SizeIntelligence = analyzeSizeFit(
     selectedSize === userDeclaredSize ? userDeclaredSize : selectedSize,
     {
@@ -246,12 +260,11 @@ export function useInstantSwapPreview({
     onSizeChange,
     onColorChange,
     displayUrl,
-    imageStyle,
     swapFlash,
     liveFitScore,
     liveIntelligence,
-    isApproximateColor: needsRecolor,
-    recoloring,
+    isApproximateColor: needsPreview,
+    processing,
     category,
   };
 }
@@ -260,18 +273,16 @@ export function useInstantSwapPreview({
 export function AnimatedTryOnImage({
   src,
   alt,
-  imageStyle,
   swapFlash,
   isApproximateColor,
-  recoloring,
+  processing,
   category,
 }: {
   src: string;
   alt: string;
-  imageStyle: React.CSSProperties;
   swapFlash: boolean;
   isApproximateColor: boolean;
-  recoloring?: boolean;
+  processing?: boolean;
   category: string;
 }) {
   const [layers, setLayers] = useState<{ src: string; visible: boolean }[]>([
@@ -317,18 +328,17 @@ export function AnimatedTryOnImage({
             alt={alt}
             onLoad={() => handleLoad(index)}
             className="w-full h-full object-cover"
-            style={layer.visible ? imageStyle : undefined}
           />
         </div>
       ))}
-      {recoloring && (
+      {processing && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-20">
           <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
         </div>
       )}
-      {isApproximateColor && !recoloring && (
+      {isApproximateColor && !processing && (
         <span className="absolute bottom-2 left-2 right-2 text-center text-[10px] bg-black/50 text-white rounded-md py-1 px-2 z-20">
-          Garment-only color preview · {category === "bottoms" ? "bottoms" : "top"} fabric recolored
+          Instant preview · {category === "bottoms" ? "bottoms" : "top"} cloth only
         </span>
       )}
     </div>
