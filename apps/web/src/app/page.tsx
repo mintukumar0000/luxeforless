@@ -30,7 +30,7 @@ type Step = "welcome" | "consent" | "capture" | "browse";
 const TRYON_PROGRESS_LABELS: Record<string, string> = {
   queued: "Queued",
   preprocessing: "Preparing your studio photo",
-  loading_model: "Loading AI models",
+  loading_model: "Loading AI models (first run can take 5–15 min on Kaggle)",
   generating: "Generating ultra-realistic try-on",
   generating_top: "AI try-on: top garment",
   generating_bottom: "AI try-on: bottom garment",
@@ -411,7 +411,7 @@ export default function MirrorPage() {
                   <h3 className="font-serif text-lg">Generating AI Try-On</h3>
                   <p className="text-sm text-stone-500">
                     {tryOnProgress ? formatTryOnProgress(tryOnProgress) : "Starting..."}
-                    {" · "}Real AI on GPU — keep this tab open.
+                    {" · "}Real AI on GPU — first try-on after notebook restart can take up to 20 min.
                   </p>
                 </div>
               </div>

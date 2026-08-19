@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import os
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -32,6 +33,7 @@ VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "768"))
 # start only if needed: export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
 
 _pipeline = None
+_pipeline_lock = threading.Lock()
 _executor: ThreadPoolExecutor | None = None
 
 
@@ -57,7 +59,11 @@ def _get_executor() -> ThreadPoolExecutor:
 
 def get_pipeline():
     global _pipeline
-    if _pipeline is None:
+    if _pipeline is not None:
+        return _pipeline
+    with _pipeline_lock:
+        if _pipeline is not None:
+            return _pipeline
         if MOCK_VTO:
             return None
         from fashn_vton import TryOnPipeline
@@ -83,7 +89,11 @@ def get_pipeline():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    # Lazy-load model on first try-on request — saves ~3GB RAM until needed
+    if os.environ.get("VTO_PRELOAD_ON_START", "").lower() in ("1", "true", "yes") and not MOCK_VTO:
+        print("Pre-loading VTO pipeline in server process...", flush=True)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_get_executor(), get_pipeline)
+        print("VTO pipeline ready for try-on requests", flush=True)
     yield
 
 
@@ -215,6 +225,7 @@ def _execute_tryon_job(
             complete_job(job_id, f"/v1/results/{filename}", int((time.time() - start) * 1000))
             return
 
+        print(f"Try-on job {job_id}: preprocessing", flush=True)
         update_job(job_id, progress="preprocessing")
         if VTO_PREPROCESS_PERSON:
             from .person_preprocessing import preprocess_person_for_vto
@@ -225,8 +236,10 @@ def _execute_tryon_job(
             )
         person.thumbnail((VTO_MAX_IMAGE_SIZE, VTO_MAX_IMAGE_SIZE), Image.LANCZOS)
 
+        print(f"Try-on job {job_id}: loading_model", flush=True)
         update_job(job_id, progress="loading_model")
         pipeline = get_pipeline()
+        print(f"Try-on job {job_id}: generating ({VTO_NUM_TIMESTEPS} steps)", flush=True)
         update_job(job_id, progress="generating")
         result = _run_inference(pipeline, person, garment, category, garment_photo_type)
 

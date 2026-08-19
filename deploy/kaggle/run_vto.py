@@ -87,46 +87,30 @@ def patch_vendor(vendor_dir: str) -> None:
         print("Patched FASHN pipeline: human parser respects VTO_HP_DEVICE", flush=True)
 
 
-def preload_pipeline(vto_dir: str, vendor_dir: str) -> None:
-    """Load models before first request. Use skip/background on Kaggle to avoid human-parser hang."""
-    if os.environ.get("VTO_SKIP_PRELOAD", "").lower() in ("1", "true", "yes"):
-        print(
-            "\n[3.5/4] Skipping preload (VTO_SKIP_PRELOAD=1) — models load on first try-on",
-            flush=True,
-        )
-        return
+def wait_for_pipeline_loaded(timeout: int = 1800) -> bool:
+    """Poll /health until models are loaded in the uvicorn process (not a subprocess)."""
+    import json
+    import urllib.error
+    import urllib.request
 
-    vendor_src = os.path.join(vendor_dir, "src")
-    preload_cmd = (
-        f"{sys.executable} -c \""
-        f"import sys, os; "
-        f"sys.path.insert(0, '{vendor_src}'); "
-        f"sys.path.insert(0, '{vto_dir}'); "
-        f"os.chdir('{vto_dir}'); "
-        f"from app.main import get_pipeline; "
-        f"get_pipeline(); "
-        f"print('AI pipeline ready — try-ons should take ~1-3 min now')\""
-    )
+    print("\n[3.5/4] Loading AI pipeline in VTO server (5-15 min first time)...", flush=True)
+    print("  Do NOT start try-on until you see: AI pipeline ready", flush=True)
 
-    if os.environ.get("VTO_PRELOAD_BACKGROUND", "1").lower() in ("1", "true", "yes"):
-        print(
-            "\n[3.5/4] Pre-loading AI pipeline in BACKGROUND (server starts now)",
-            flush=True,
-        )
-        print("  Human parser on CPU — can take 10-20 min; first try-on may wait", flush=True)
+    for elapsed in range(timeout):
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3) as resp:
+                data = json.loads(resp.read().decode())
+                if data.get("pipeline_loaded"):
+                    print("AI pipeline ready — try-ons should take ~3-6 min now", flush=True)
+                    return True
+        except (OSError, urllib.error.URLError):
+            pass
+        if elapsed > 0 and elapsed % 30 == 0:
+            print(f"  Still loading models... ({elapsed // 60}m {elapsed % 60}s)", flush=True)
+        time.sleep(1)
 
-        def _bg_preload() -> None:
-            try:
-                run(preload_cmd)
-            except Exception as exc:
-                print(f"Background preload failed (will load on first try-on): {exc}", flush=True)
-
-        threading.Thread(target=_bg_preload, daemon=True).start()
-        return
-
-    print("\n[3.5/4] Pre-loading AI pipeline (~3-20 min first time)...", flush=True)
-    print("  Human parser runs on CPU (saves T4 VRAM for try-on model)", flush=True)
-    run(preload_cmd)
+    print("WARNING: Pipeline load timed out — restart notebook and try again", flush=True)
+    return False
 
 
 def core_weights_ready(weights_dir: str) -> bool:
@@ -221,10 +205,10 @@ def main() -> None:
     os.environ["VTO_DEVICE"] = "cuda"
     # Human parser on CPU avoids T4 VRAM hang at ~78% layer load
     os.environ["VTO_HP_DEVICE"] = "cpu"
+    if os.environ.get("VTO_SKIP_PRELOAD", "").lower() not in ("1", "true", "yes"):
+        os.environ["VTO_PRELOAD_ON_START"] = "1"
 
-    preload_pipeline(vto_dir, vendor_dir)
-
-    print("\n[4/4] Starting VTO server in background...", flush=True)
+    print("\n[4/4] Starting VTO server...", flush=True)
     server = threading.Thread(target=start_vto_server, args=(vto_dir, vendor_dir), daemon=True)
     server.start()
 
@@ -232,6 +216,11 @@ def main() -> None:
         print("ERROR: VTO server did not start on port 8000", flush=True)
         sys.exit(1)
     print("VTO server ready on port 8000", flush=True)
+
+    if os.environ.get("VTO_PRELOAD_ON_START") == "1":
+        wait_for_pipeline_loaded()
+    elif os.environ.get("VTO_SKIP_PRELOAD", "").lower() in ("1", "true", "yes"):
+        print("\n[3.5/4] Skipping preload — models load on first try-on (slow)", flush=True)
 
     from pyngrok import ngrok
 
