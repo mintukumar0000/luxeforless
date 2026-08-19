@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
-import { Camera, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
+import { useRef, useState, useCallback, useEffect, ChangeEvent } from "react";
+import { Camera, RefreshCw, CheckCircle, AlertCircle, Monitor, Smartphone, ImageUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { validateBodyCapture, preprocessPersonCapture } from "@/lib/vto-client";
 import { BodyEstimates } from "@/lib/fit-scoring";
@@ -10,6 +10,8 @@ import { DEFAULT_SIZE_PROFILE, SizeProfile } from "@/lib/size-options";
 import { TryOnFocus } from "@/lib/try-on-focus";
 
 type CapturePhase = "camera" | "sizes" | "processing" | "review";
+export type CaptureInputMode = "live" | "camera" | "upload";
+export type CaptureSource = "live" | "file";
 
 interface WebcamCaptureProps {
   onCapture: (
@@ -17,7 +19,8 @@ interface WebcamCaptureProps {
     estimates: BodyEstimates | null,
     sizeProfile: SizeProfile,
     tryOnFocus: TryOnFocus,
-    validationPassed: boolean
+    validationPassed: boolean,
+    source: CaptureSource
   ) => void;
   onCancel?: () => void;
 }
@@ -28,10 +31,48 @@ interface ValidationState {
   estimates: BodyEstimates | null;
 }
 
+function defaultInputMode(): CaptureInputMode {
+  if (typeof window === "undefined") return "live";
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? "camera" : "live";
+}
+
+const INPUT_MODES: {
+  id: CaptureInputMode;
+  label: string;
+  short: string;
+  icon: typeof Monitor;
+  hint: string;
+}[] = [
+  {
+    id: "live",
+    label: "Live mirror",
+    short: "Kiosk / webcam",
+    icon: Monitor,
+    hint: "In-store display or laptop webcam — continuous preview",
+  },
+  {
+    id: "camera",
+    label: "Take photo",
+    short: "Phone / tablet",
+    icon: Smartphone,
+    hint: "Opens your device camera — best for mobile shoppers",
+  },
+  {
+    id: "upload",
+    label: "Upload photo",
+    short: "Gallery",
+    icon: ImageUp,
+    hint: "Pick an existing full-body photo from your library",
+  },
+];
+
 export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [inputMode, setInputMode] = useState<CaptureInputMode>(defaultInputMode);
+  const [captureSource, setCaptureSource] = useState<CaptureSource>("live");
   const [phase, setPhase] = useState<CapturePhase>("camera");
   const [ready, setReady] = useState(false);
   const [validation, setValidation] = useState<ValidationState | null>(null);
@@ -42,7 +83,14 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
   const [processingLabel, setProcessingLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setReady(false);
+  }, []);
+
   const startCamera = useCallback(async () => {
+    stopCamera();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -56,16 +104,27 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
         setError(null);
       }
     } catch {
-      setError("Camera access denied. Please allow camera permissions and try again.");
+      setError("Camera access denied. Use Take photo or Upload instead.");
     }
-  }, []);
+  }, [stopCamera]);
 
   useEffect(() => {
-    startCamera();
-    return () => {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, [startCamera]);
+    if (inputMode === "live" && phase === "camera") {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return stopCamera;
+  }, [inputMode, phase, startCamera, stopCamera]);
+
+  const beginWithImage = useCallback((dataUrl: string, source: CaptureSource) => {
+    setCaptureSource(source);
+    setRawCapture(dataUrl);
+    setStudioCapture(null);
+    setValidation(null);
+    setError(null);
+    setPhase("sizes");
+  }, []);
 
   const captureFrame = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -84,13 +143,27 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    setRawCapture(dataUrl);
-    setStudioCapture(null);
-    setValidation(null);
-    setError(null);
-    setPhase("sizes");
-  }, []);
+    beginWithImage(canvas.toDataURL("image/jpeg", 0.92), "live");
+  }, [beginWithImage]);
+
+  const handleFileSelect = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        setError("Please choose a JPEG, PNG, or WebP photo.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => beginWithImage(reader.result as string, "file");
+      reader.onerror = () => setError("Could not read that photo. Try another file.");
+      reader.readAsDataURL(file);
+    },
+    [beginWithImage]
+  );
+
+  const openFilePicker = () => fileInputRef.current?.click();
 
   const runStudioPipeline = useCallback(async () => {
     if (!rawCapture) return;
@@ -151,7 +224,8 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
         validation.estimates || null,
         sizeProfile,
         tryOnFocus,
-        validation.valid
+        validation.valid,
+        captureSource
       );
     }
   };
@@ -162,7 +236,14 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     setValidation(null);
     setSizeProfile(DEFAULT_SIZE_PROFILE);
     setTryOnFocus("full");
+    setCaptureSource(inputMode === "live" ? "live" : "file");
     setPhase("camera");
+  };
+
+  const switchInputMode = (mode: CaptureInputMode) => {
+    setInputMode(mode);
+    setCaptureSource(mode === "live" ? "live" : "file");
+    setError(null);
   };
 
   if (phase === "sizes" && rawCapture) {
@@ -181,10 +262,37 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
 
   const displayImage = phase === "review" ? studioCapture || rawCapture : null;
 
+  const activeMode = INPUT_MODES.find((m) => m.id === inputMode)!;
+
   return (
     <div className="space-y-4">
+      {phase === "camera" && (
+        <div className="flex gap-1 p-1 bg-stone-100 rounded-xl">
+          {INPUT_MODES.map((mode) => {
+            const Icon = mode.icon;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => switchInputMode(mode.id)}
+                className={cn(
+                  "flex-1 flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg text-[11px] font-medium transition-all",
+                  inputMode === mode.id
+                    ? "bg-white text-stone-900 shadow-sm"
+                    : "text-stone-500 hover:text-stone-700"
+                )}
+              >
+                <Icon size={16} />
+                <span className="hidden sm:inline">{mode.label}</span>
+                <span className="sm:hidden">{mode.short}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="relative aspect-[3/4] max-h-[520px] mx-auto bg-stone-900 rounded-2xl overflow-hidden">
-        {phase === "camera" ? (
+        {phase === "camera" && inputMode === "live" ? (
           <video
             ref={videoRef}
             className="w-full h-full object-cover mirror"
@@ -192,6 +300,33 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
             muted
             style={{ transform: "scaleX(-1)" }}
           />
+        ) : phase === "camera" ? (
+          <div className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center gap-4">
+            {inputMode === "camera" ? (
+              <Smartphone size={40} className="text-white/70" />
+            ) : (
+              <ImageUp size={40} className="text-white/70" />
+            )}
+            <div>
+              <p className="font-medium">{activeMode.label}</p>
+              <p className="text-sm text-white/70 mt-1 max-w-xs">{activeMode.hint}</p>
+            </div>
+            <button
+              type="button"
+              onClick={openFilePicker}
+              className="px-5 py-2.5 rounded-xl bg-white text-stone-900 font-medium"
+            >
+              {inputMode === "camera" ? "Open camera" : "Choose photo"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture={inputMode === "camera" ? "user" : undefined}
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+          </div>
         ) : displayImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={displayImage} alt="Captured" className="w-full h-full object-cover" />
@@ -201,7 +336,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
           </div>
         )}
 
-        {phase === "camera" && ready && (
+        {phase === "camera" && inputMode === "live" && ready && (
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute inset-x-8 inset-y-12 border-2 border-dashed border-white/40 rounded-xl" />
             <p className="absolute bottom-4 left-0 right-0 text-center text-white/80 text-sm">
@@ -259,7 +394,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
           </button>
         )}
 
-        {phase === "camera" && (
+        {phase === "camera" && inputMode === "live" && (
           <button
             onClick={captureFrame}
             disabled={!ready}

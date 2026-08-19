@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import Link from "next/link";
 import { useSession } from "@/context/SessionContext";
 import { ConsentScreen } from "@/components/ConsentScreen";
-import { WebcamCapture } from "@/components/WebcamCapture";
+import { WebcamCapture, CaptureSource } from "@/components/WebcamCapture";
 import { ProductCatalog, Product } from "@/components/ProductCatalog";
 import { TryOnResultView } from "@/components/TryOnResultView";
 import { OutfitBuilder } from "@/components/OutfitBuilder";
@@ -78,6 +78,7 @@ export default function MirrorPage() {
   const [savingOutfit, setSavingOutfit] = useState(false);
   const [outfitSaved, setOutfitSaved] = useState(false);
   const [tryOnCache, setTryOnCache] = useState<Record<string, string>>({});
+  const [captureSource, setCaptureSource] = useState<CaptureSource>("live");
 
   const handleConsent = async () => {
     await startSession();
@@ -93,9 +94,11 @@ export default function MirrorPage() {
       estimates: BodyEstimates | null,
       profile: SizeProfile,
       focus: TryOnFocus,
-      validationPassed: boolean
+      validationPassed: boolean,
+      source: CaptureSource
     ) => {
       setCaptureImage(image);
+      setCaptureSource(source);
       setSizeProfile(profile);
       setTryOnFocus(focus);
       if (estimates) setBodyEstimates(estimates);
@@ -363,9 +366,9 @@ export default function MirrorPage() {
           <div className="max-w-md mx-auto">
             <div className="text-center mb-6">
               <Camera className="mx-auto text-stone-400 mb-2" size={32} />
-              <h2 className="text-2xl font-serif">Body Scan</h2>
+              <h2 className="text-2xl font-serif">Your photo</h2>
               <p className="text-stone-500 text-sm mt-1">
-                Stand 6 feet back, full body visible, arms at your sides
+                In-store mirror, phone camera, or upload — same AI try-on after this step
               </p>
             </div>
             <WebcamCapture onCapture={handleCapture} onCancel={() => setStep("consent")} />
@@ -384,7 +387,12 @@ export default function MirrorPage() {
               {captureImage && (
                 <div className="w-12 h-16 rounded-lg overflow-hidden border-2 border-stone-300">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={captureImage} alt="You" className="w-full h-full object-cover" style={{ transform: "scaleX(-1)" }} />
+                  <img
+                    src={captureImage}
+                    alt="You"
+                    className="w-full h-full object-cover"
+                    style={captureSource === "live" ? { transform: "scaleX(-1)" } : undefined}
+                  />
                 </div>
               )}
             </div>

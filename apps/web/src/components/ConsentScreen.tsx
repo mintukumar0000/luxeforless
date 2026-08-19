@@ -17,7 +17,7 @@ export function ConsentScreen({ onAccept, onDecline }: ConsentScreenProps) {
 
       <div className="space-y-4 text-stone-700 text-sm leading-relaxed">
         <p>
-          Before we use your camera, please review how your data is handled:
+          Before we use your photo, please review how your data is handled:
         </p>
         <ul className="list-disc pl-5 space-y-2">
           <li>Your photo is used only to generate AI try-on previews during this session.</li>
@@ -27,7 +27,7 @@ export function ConsentScreen({ onAccept, onDecline }: ConsentScreenProps) {
           <li>Try-on results are AI-generated previews and may not perfectly match physical fit.</li>
         </ul>
         <p className="text-xs text-stone-400 pt-2">
-          By continuing, you consent to camera capture and processing as described above.
+          By continuing, you consent to photo capture or upload and processing as described above.
         </p>
       </div>
 
