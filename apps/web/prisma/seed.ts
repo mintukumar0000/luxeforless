@@ -85,7 +85,7 @@ async function main() {
               create: {
                 imageUrl: garmentUrl,
                 vtoReadyUrl: garmentUrl,
-                garmentPhotoType: GarmentPhotoType.flat_lay,
+                garmentPhotoType: GarmentPhotoType.model,
                 isPrimary: true,
               },
             },

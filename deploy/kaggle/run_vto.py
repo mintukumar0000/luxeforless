@@ -184,8 +184,10 @@ def main() -> None:
 
     os.environ["WEIGHTS_DIR"] = weights_dir
     os.environ["RESULTS_DIR"] = f"{vto_dir}/results"
-    os.environ["VTO_NUM_TIMESTEPS"] = os.environ.get("VTO_NUM_TIMESTEPS", "4")
-    os.environ["VTO_MAX_IMAGE_SIZE"] = os.environ.get("VTO_MAX_IMAGE_SIZE", "512")
+    os.environ["VTO_NUM_TIMESTEPS"] = os.environ.get("VTO_NUM_TIMESTEPS", "20")
+    os.environ["VTO_MAX_IMAGE_SIZE"] = os.environ.get("VTO_MAX_IMAGE_SIZE", "768")
+    os.environ["VTO_PREPROCESS_PERSON"] = "true"
+    os.environ["VTO_ENHANCE_RESULT"] = "true"
     os.environ["VTO_DEVICE"] = "cuda"
     # Human parser on CPU avoids T4 VRAM hang at ~78% layer load
     os.environ["VTO_HP_DEVICE"] = "cpu"

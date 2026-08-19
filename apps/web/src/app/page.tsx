@@ -13,8 +13,8 @@ import { BodyEstimates } from "@/lib/fit-scoring";
 import { APP_NAME } from "@/lib/utils";
 import {
   pollTryOnJob,
-  resolveVtoResultUrl,
   submitTryOnJob,
+  toProxiedResultUrl,
   urlToDataUrl,
 } from "@/lib/vto-client";
 import { Camera, Upload, Sparkles } from "lucide-react";
@@ -23,8 +23,9 @@ type Step = "welcome" | "consent" | "capture" | "browse";
 
 const TRYON_PROGRESS_LABELS: Record<string, string> = {
   queued: "Queued",
+  preprocessing: "Preparing your studio photo",
   loading_model: "Loading AI models",
-  generating: "Generating image",
+  generating: "Generating ultra-realistic try-on",
   done: "Done",
   error: "Failed",
 };
@@ -94,17 +95,20 @@ export default function MirrorPage() {
       }
 
       const garmentDataUrl = await urlToDataUrl(garmentAsset.vtoReadyUrl);
+      const isDemoModelShot =
+        garmentAsset.vtoReadyUrl?.includes("sample-garment") ||
+        garmentAsset.garmentPhotoType === "model";
       const submit = await submitTryOnJob({
         personImageBase64: captureImage,
         garmentDataUrl,
         category: product.category,
-        garmentPhotoType: garmentAsset.garmentPhotoType === "model" ? "model" : "flat-lay",
+        garmentPhotoType: isDemoModelShot ? "model" : "flat-lay",
       });
 
       const vtoResult = await pollTryOnJob(submit.job_id, {
         onProgress: setTryOnProgress,
       });
-      const resultUrl = resolveVtoResultUrl(vtoResult.result_url);
+      const resultUrl = toProxiedResultUrl(vtoResult.result_url);
 
       const res = await fetch("/api/tryon/complete", {
         method: "POST",

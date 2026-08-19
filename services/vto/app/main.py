@@ -21,9 +21,11 @@ from .jobs import complete_job, create_job, fail_job, get_job, update_job
 WEIGHTS_DIR = os.environ.get("WEIGHTS_DIR", "./weights")
 RESULTS_DIR = os.environ.get("RESULTS_DIR", "./results")
 MOCK_VTO = os.environ.get("MOCK_VTO", "false").lower() == "true"
-# 4 steps = minimum for 8GB Mac (~5-10 min total)
-VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "4"))
-VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "512"))
+VTO_PREPROCESS_PERSON = os.environ.get("VTO_PREPROCESS_PERSON", "true").lower() == "true"
+VTO_ENHANCE_RESULT = os.environ.get("VTO_ENHANCE_RESULT", "true").lower() == "true"
+# 20 steps = balanced quality on GPU; 4 = fast/low quality (8GB Mac)
+VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "20"))
+VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "768"))
 
 # NOTE: Do NOT set PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 — it causes
 # "invalid low watermark ratio 1.4" on Apple Silicon. Set in shell before
@@ -140,14 +142,26 @@ class GarmentProcessResponse(BaseModel):
     background_removed: bool
 
 
-def _decode_image(data: str) -> Image.Image:
+class PersonPreprocessResponse(BaseModel):
+    image: str = Field(..., description="Base64-encoded studio-ready PNG")
+    background_removed: bool
+    studio_background: str
+
+
+def _decode_image(data: str, *, for_person: bool = False) -> Image.Image:
     if "," in data:
         data = data.split(",", 1)[1]
     raw = base64.b64decode(data)
     img = Image.open(io.BytesIO(raw)).convert("RGB")
-    # Downscale to reduce memory and speed up inference on 8GB Macs
-    img.thumbnail((VTO_MAX_IMAGE_SIZE, VTO_MAX_IMAGE_SIZE), Image.LANCZOS)
+    limit = min(VTO_MAX_IMAGE_SIZE * 2, 1024) if for_person else VTO_MAX_IMAGE_SIZE
+    img.thumbnail((limit, limit), Image.LANCZOS)
     return img
+
+
+def _encode_image_b64(img: Image.Image) -> str:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
 def _run_inference(pipeline, person, garment, category, garment_photo_type):
@@ -179,6 +193,9 @@ async def health():
         "model": "fashn-vton-1.5",
         "device": _get_device() if not MOCK_VTO else "mock",
         "num_timesteps": VTO_NUM_TIMESTEPS,
+        "max_image_size": VTO_MAX_IMAGE_SIZE,
+        "preprocess_person": VTO_PREPROCESS_PERSON,
+        "enhance_result": VTO_ENHANCE_RESULT,
     }
 
 
@@ -198,6 +215,16 @@ def _execute_tryon_job(
             complete_job(job_id, f"/v1/results/{filename}", int((time.time() - start) * 1000))
             return
 
+        update_job(job_id, progress="preprocessing")
+        if VTO_PREPROCESS_PERSON:
+            from .person_preprocessing import preprocess_person_for_vto
+
+            person = preprocess_person_for_vto(
+                person,
+                max_size=min(VTO_MAX_IMAGE_SIZE * 2, 1024),
+            )
+        person.thumbnail((VTO_MAX_IMAGE_SIZE, VTO_MAX_IMAGE_SIZE), Image.LANCZOS)
+
         update_job(job_id, progress="loading_model")
         pipeline = get_pipeline()
         update_job(job_id, progress="generating")
@@ -205,7 +232,12 @@ def _execute_tryon_job(
 
         filename = f"{job_id}.png"
         filepath = os.path.join(RESULTS_DIR, filename)
-        result.images[0].save(filepath)
+        out_img = result.images[0]
+        if VTO_ENHANCE_RESULT:
+            from .result_enhancement import enhance_tryon_result
+
+            out_img = enhance_tryon_result(out_img)
+        out_img.save(filepath, format="PNG", optimize=True)
         complete_job(job_id, f"/v1/results/{filename}", int((time.time() - start) * 1000))
     except Exception as e:
         import traceback
@@ -221,7 +253,7 @@ async def tryon(req: TryOnRequest):
     create_job(job_id)
 
     try:
-        person = _decode_image(req.person_image)
+        person = _decode_image(req.person_image, for_person=True)
         garment = _decode_image(req.garment_image)
 
         loop = asyncio.get_event_loop()
@@ -282,6 +314,20 @@ async def validate_body(image: UploadFile = File(...)):
     img = Image.open(io.BytesIO(contents)).convert("RGB")
     result = validate_body_capture(img)
     return BodyValidationResponse(**result)
+
+
+@app.post("/v1/preprocess-person", response_model=PersonPreprocessResponse)
+async def preprocess_person(image: UploadFile = File(...)):
+    from .person_preprocessing import preprocess_person_for_vto
+
+    contents = await image.read()
+    img = Image.open(io.BytesIO(contents)).convert("RGB")
+    studio = preprocess_person_for_vto(img, max_size=1024)
+    return PersonPreprocessResponse(
+        image=_encode_image_b64(studio),
+        background_removed=True,
+        studio_background="studio",
+    )
 
 
 @app.post("/v1/process-garment", response_model=GarmentProcessResponse)

@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { Camera, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { validateBodyCapture } from "@/lib/vto-client";
+import { validateBodyCapture, preprocessPersonCapture } from "@/lib/vto-client";
 import { BodyEstimates } from "@/lib/fit-scoring";
 
 interface WebcamCaptureProps {
@@ -25,6 +25,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<ValidationState | null>(null);
   const [captured, setCaptured] = useState<string | null>(null);
+  const [studioProcessing, setStudioProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const startCamera = useCallback(async () => {
@@ -73,18 +74,30 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
     setCaptured(dataUrl);
     setValidating(true);
+    setStudioProcessing(true);
     setValidation(null);
     setError(null);
 
-    try {
-      const blob = await fetch(dataUrl).then((r) => r.blob());
-      const form = new FormData();
-      form.append("image", blob, "capture.jpg");
+    const blob = await fetch(dataUrl).then((r) => r.blob());
 
-      const res = await validateBodyCapture(blob).then(
-        (result) => ({ ok: true as const, result }),
-        (err) => ({ ok: false as const, error: err instanceof Error ? err.message : "Validation failed" })
-      );
+    const preprocessPromise = preprocessPersonCapture(blob)
+      .then(({ imageDataUrl }) => {
+        setCaptured(imageDataUrl);
+      })
+      .catch(() => {
+        /* keep original capture if studio prep unavailable */
+      })
+      .finally(() => setStudioProcessing(false));
+
+    try {
+      const res = await Promise.all([
+        validateBodyCapture(blob).then(
+          (result) => ({ ok: true as const, result }),
+          (err) => ({ ok: false as const, error: err instanceof Error ? err.message : "Validation failed" })
+        ),
+        preprocessPromise,
+      ]).then(([validationRes]) => validationRes);
+
       if (!res.ok) {
         throw new Error(res.error);
       }
@@ -153,7 +166,9 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
 
       {validating && (
         <div className="text-center text-stone-500 text-sm animate-pulse">
-          Checking pose and lighting...
+          {studioProcessing
+            ? "Removing background and creating studio portrait..."
+            : "Checking pose and lighting..."}
         </div>
       )}
 

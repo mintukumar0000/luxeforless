@@ -109,6 +109,43 @@ export function resolveVtoResultUrl(resultUrl: string): string {
   return resultUrl.startsWith("http") ? resultUrl : `${getVtoBaseUrl()}${resultUrl}`;
 }
 
+/** Same-origin URL for displaying try-on images (ngrok blocks raw img src). */
+export function toProxiedResultUrl(resultUrl: string): string {
+  const path = resultUrl.startsWith("http")
+    ? new URL(resultUrl).pathname
+    : resultUrl.startsWith("/")
+      ? resultUrl
+      : `/${resultUrl}`;
+
+  if (path.startsWith("/v1/results/")) {
+    return `/api/vto-result?path=${encodeURIComponent(path)}`;
+  }
+
+  return resolveVtoResultUrl(resultUrl);
+}
+
+export async function preprocessPersonCapture(imageBlob: Blob): Promise<{
+  imageDataUrl: string;
+  backgroundRemoved: boolean;
+}> {
+  const vtoBase = getVtoBaseUrl();
+  const form = new FormData();
+  form.append("image", imageBlob, "capture.jpg");
+  const res = await fetch(`${vtoBase}/v1/preprocess-person`, {
+    method: "POST",
+    headers: vtoHeaders(),
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`Studio preprocess failed (${res.status})`);
+  }
+  const data = await res.json();
+  return {
+    imageDataUrl: `data:image/png;base64,${data.image}`,
+    backgroundRemoved: Boolean(data.background_removed),
+  };
+}
+
 export async function validateBodyCapture(imageBlob: Blob): Promise<{
   valid: boolean;
   issues: string[];
