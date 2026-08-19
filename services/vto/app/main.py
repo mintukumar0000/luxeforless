@@ -24,6 +24,8 @@ RESULTS_DIR = os.environ.get("RESULTS_DIR", "./results")
 MOCK_VTO = os.environ.get("MOCK_VTO", "false").lower() == "true"
 VTO_PREPROCESS_PERSON = os.environ.get("VTO_PREPROCESS_PERSON", "false").lower() == "true"
 VTO_KEEP_ORIGINAL_BACKGROUND = os.environ.get("VTO_KEEP_ORIGINAL_BACKGROUND", "true").lower() == "true"
+VTO_IDENTITY_PRESERVE = os.environ.get("VTO_IDENTITY_PRESERVE", "true").lower() == "true"
+VTO_BACKEND = os.environ.get("VTO_BACKEND", "auto").lower()
 VTO_ENHANCE_RESULT = os.environ.get("VTO_ENHANCE_RESULT", "true").lower() == "true"
 # 24 steps @ up to 1280px — preserve input scene (no studio rembg)
 VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "24"))
@@ -232,8 +234,30 @@ async def health():
         "max_image_size": VTO_MAX_IMAGE_SIZE,
         "preprocess_person": VTO_PREPROCESS_PERSON,
         "keep_original_background": VTO_KEEP_ORIGINAL_BACKGROUND,
+        "identity_preserve": VTO_IDENTITY_PRESERVE,
+        "vto_backend": VTO_BACKEND,
+        "fashn_api": _fashn_configured(),
         "enhance_result": VTO_ENHANCE_RESULT,
     }
+
+
+def _fashn_configured() -> bool:
+    try:
+        from .fashn_api import fashn_available
+
+        return fashn_available()
+    except Exception:
+        return False
+
+
+def _use_fashn_api() -> bool:
+    if not _fashn_configured():
+        return False
+    if VTO_BACKEND in ("local", "kaggle", "v15"):
+        return False
+    if VTO_BACKEND in ("fashn-max", "fashn-v16", "fashn", "max", "auto"):
+        return True
+    return VTO_BACKEND == "auto"
 
 
 def _execute_tryon_job(
@@ -245,6 +269,7 @@ def _execute_tryon_job(
     preserve_background: bool,
 ) -> None:
     start = time.time()
+    person_original = person.copy()
     try:
         if MOCK_VTO:
             filename = f"{job_id}.png"
@@ -266,14 +291,29 @@ def _execute_tryon_job(
 
         print(f"Try-on job {job_id}: loading_model", flush=True)
         update_job(job_id, progress="loading_model")
-        pipeline = get_pipeline()
-        print(f"Try-on job {job_id}: generating ({VTO_NUM_TIMESTEPS} steps)", flush=True)
-        update_job(job_id, progress="generating")
-        result = _run_inference(pipeline, person, garment, category, garment_photo_type)
+
+        if _use_fashn_api():
+            from .fashn_api import run_fashn_tryon
+
+            print(f"Try-on job {job_id}: FASHN cloud API", flush=True)
+            update_job(job_id, progress="generating")
+            out_img = run_fashn_tryon(person, garment, category, garment_photo_type)
+        else:
+            pipeline = get_pipeline()
+            print(f"Try-on job {job_id}: generating ({VTO_NUM_TIMESTEPS} steps)", flush=True)
+            update_job(job_id, progress="generating")
+            result = _run_inference(pipeline, person, garment, category, garment_photo_type)
+            out_img = result.images[0]
+
+        if VTO_IDENTITY_PRESERVE and (preserve_background or VTO_KEEP_ORIGINAL_BACKGROUND):
+            from .identity_preservation import preserve_identity
+
+            update_job(job_id, progress="preserving_identity")
+            print(f"Try-on job {job_id}: identity preserve composite", flush=True)
+            out_img = preserve_identity(person_original, out_img, category)
 
         filename = f"{job_id}.png"
         filepath = os.path.join(RESULTS_DIR, filename)
-        out_img = result.images[0]
         if VTO_ENHANCE_RESULT:
             from .result_enhancement import enhance_tryon_result
 

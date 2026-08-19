@@ -32,6 +32,7 @@ const TRYON_PROGRESS_LABELS: Record<string, string> = {
   preprocessing: "Preparing your studio photo",
   loading_model: "Loading AI models (first run can take 5–15 min on Kaggle)",
   generating: "Generating ultra-realistic try-on",
+  preserving_identity: "Locking your pose, hands & background",
   generating_top: "AI try-on: top garment",
   generating_bottom: "AI try-on: bottom garment",
   done: "Done",

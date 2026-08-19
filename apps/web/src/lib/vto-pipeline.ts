@@ -39,7 +39,10 @@ export async function runSingleTryOn({
     preserveBackground: true,
   });
 
-  const vtoResult = await pollTryOnJob(submit.job_id, { onProgress });
+  const vtoResult = await pollTryOnJob(submit.job_id, {
+    backend: submit.backend ?? "local",
+    onProgress,
+  });
   return {
     resultUrl: toProxiedResultUrl(vtoResult.result_url),
     processingTimeMs: vtoResult.processing_time_ms,

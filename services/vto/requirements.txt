@@ -6,4 +6,5 @@ numpy>=1.21.0
 opencv-python>=4.5.0
 mediapipe>=0.10.9
 rembg>=2.0.50
+requests>=2.31.0
 -e ../../vendor/fashn-vton-1.5

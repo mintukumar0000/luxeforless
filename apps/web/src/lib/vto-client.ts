@@ -27,18 +27,17 @@ export async function submitTryOnJob(params: {
   category: keyof typeof VTO_CATEGORY_MAP | string;
   garmentPhotoType: "model" | "flat-lay";
   preserveBackground?: boolean;
-}): Promise<{ job_id: string; status: string }> {
-  const vtoBase = getVtoBaseUrl();
+}): Promise<{ job_id: string; status: string; backend?: string }> {
   const person = params.personImageBase64.includes(",")
-    ? params.personImageBase64.split(",")[1]
-    : params.personImageBase64;
+    ? params.personImageBase64
+    : `data:image/jpeg;base64,${params.personImageBase64}`;
   const garment = params.garmentDataUrl.includes(",")
-    ? params.garmentDataUrl.split(",")[1]
-    : params.garmentDataUrl;
+    ? params.garmentDataUrl
+    : `data:image/jpeg;base64,${params.garmentDataUrl}`;
 
-  const res = await fetch(`${vtoBase}/v1/tryon`, {
+  const res = await fetch("/api/vto/submit", {
     method: "POST",
-    headers: vtoHeaders({ "Content-Type": "application/json" }),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       person_image: person,
       garment_image: garment,
@@ -65,10 +64,11 @@ export async function pollTryOnJob(
   options?: {
     intervalMs?: number;
     maxWaitMs?: number;
+    backend?: string;
     onProgress?: (progress: string | null) => void;
   }
 ): Promise<{ result_url: string; processing_time_ms: number }> {
-  const vtoBase = getVtoBaseUrl();
+  const backend = options?.backend ?? "local";
   const intervalMs = options?.intervalMs ?? 3000;
   const maxWaitMs = options?.maxWaitMs ?? 1_800_000;
   const start = Date.now();
@@ -77,7 +77,9 @@ export async function pollTryOnJob(
   while (Date.now() - start < maxWaitMs) {
     await new Promise((r) => setTimeout(r, intervalMs));
     try {
-      const res = await fetch(`${vtoBase}/v1/jobs/${jobId}`, { headers: vtoHeaders() });
+      const res = await fetch(`/api/vto/status/${jobId}?backend=${backend}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         lastError = `Status check failed (${res.status})`;
         continue;
@@ -102,7 +104,7 @@ export async function pollTryOnJob(
 
   throw new Error(
     lastError
-      ? `Cannot reach VTO service at ${vtoBase}. Is your Kaggle notebook running? (${lastError})`
+      ? `Try-on failed (${lastError})`
       : "Try-on timed out after 30 minutes"
   );
 }
@@ -113,6 +115,9 @@ export function resolveVtoResultUrl(resultUrl: string): string {
 
 /** Same-origin URL for displaying try-on images (ngrok blocks raw img src). */
 export function toProxiedResultUrl(resultUrl: string): string {
+  if (/^https:\/\/(cdn|media)\.fashn\.ai\//.test(resultUrl)) {
+    return resultUrl;
+  }
   const path = resultUrl.startsWith("http")
     ? new URL(resultUrl).pathname
     : resultUrl.startsWith("/")

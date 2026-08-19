@@ -202,6 +202,8 @@ def main() -> None:
         print("QUALITY MODE: 24 steps @ up to 1280px, original background kept (~5-10 min/try-on)", flush=True)
     os.environ["VTO_PREPROCESS_PERSON"] = "false"
     os.environ["VTO_KEEP_ORIGINAL_BACKGROUND"] = "true"
+    os.environ["VTO_IDENTITY_PRESERVE"] = "true"
+    os.environ.setdefault("VTO_BACKEND", "auto")
     os.environ["VTO_ENHANCE_RESULT"] = "true"
     os.environ["VTO_DEVICE"] = "cuda"
     # Human parser on CPU avoids T4 VRAM hang at ~78% layer load
