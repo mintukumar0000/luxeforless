@@ -22,7 +22,32 @@ def run(cmd: str, cwd: str | None = None) -> None:
     subprocess.check_call(cmd, shell=True, cwd=cwd)
 
 
-def wait_for_port(port: int, timeout: int = 60) -> bool:
+def download_core_weights(weights_dir: str, vendor_dir: str) -> None:
+    """Download try-on + pose weights only. Human parser loads lazily on first try-on."""
+    dwpose_dir = os.path.join(weights_dir, "dwpose")
+    os.makedirs(dwpose_dir, exist_ok=True)
+
+    run(
+        f"python -c \""
+        f"from huggingface_hub import hf_hub_download; "
+        f"import os; "
+        f"w='{weights_dir}'; d=os.path.join(w,'dwpose'); "
+        f"os.makedirs(d, exist_ok=True); "
+        f"hf_hub_download(repo_id='fashn-ai/fashn-vton-1.5', filename='model.safetensors', local_dir=w); "
+        f"print('TryOnModel OK'); "
+        f"hf_hub_download(repo_id='fashn-ai/DWPose', filename='yolox_l.onnx', local_dir=d); "
+        f"hf_hub_download(repo_id='fashn-ai/DWPose', filename='dw-ll_ucoco_384.onnx', local_dir=d); "
+        f"print('DWPose OK'); "
+        f"print('Skipping human-parser preload — loads automatically on first try-on')\""
+    )
+
+
+def core_weights_ready(weights_dir: str) -> bool:
+    return (
+        os.path.exists(os.path.join(weights_dir, "model.safetensors"))
+        and os.path.exists(os.path.join(weights_dir, "dwpose", "yolox_l.onnx"))
+        and os.path.exists(os.path.join(weights_dir, "dwpose", "dw-ll_ucoco_384.onnx"))
+    )
     import socket
 
     for _ in range(timeout):
@@ -86,11 +111,12 @@ def main() -> None:
 
     weights_dir = f"{vto_dir}/weights"
     os.makedirs(weights_dir, exist_ok=True)
-    if not os.path.exists(f"{weights_dir}/model.safetensors"):
-        print("\n[3/4] Downloading model weights (~2GB, 10-15 min)...", flush=True)
-        run(f"python {vendor_dir}/scripts/download_weights.py --weights-dir {weights_dir}")
+    if not core_weights_ready(weights_dir):
+        print("\n[3/4] Downloading core model weights (~2GB, 5-10 min)...", flush=True)
+        download_core_weights(weights_dir, vendor_dir)
     else:
-        print("\n[3/4] Weights already downloaded — skipping", flush=True)
+        print("\n[3/4] Core weights already present — skipping download", flush=True)
+        print("  (Human parser loads on first try-on — do not preload)", flush=True)
 
     os.environ["WEIGHTS_DIR"] = weights_dir
     os.environ["RESULTS_DIR"] = f"{vto_dir}/results"
