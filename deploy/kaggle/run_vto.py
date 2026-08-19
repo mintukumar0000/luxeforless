@@ -88,12 +88,16 @@ def patch_vendor(vendor_dir: str) -> None:
 
 
 def preload_pipeline(vto_dir: str, vendor_dir: str) -> None:
-    """Load all models before first user request (human parser on CPU to save VRAM)."""
-    print("\n[3.5/4] Pre-loading AI pipeline (~3-8 min first time)...", flush=True)
-    print("  Human parser runs on CPU (saves T4 VRAM for try-on model)", flush=True)
+    """Load models before first request. Use skip/background on Kaggle to avoid human-parser hang."""
+    if os.environ.get("VTO_SKIP_PRELOAD", "").lower() in ("1", "true", "yes"):
+        print(
+            "\n[3.5/4] Skipping preload (VTO_SKIP_PRELOAD=1) — models load on first try-on",
+            flush=True,
+        )
+        return
+
     vendor_src = os.path.join(vendor_dir, "src")
-    # Fresh subprocess so pip install -e is visible (same interpreter as notebook)
-    run(
+    preload_cmd = (
         f"{sys.executable} -c \""
         f"import sys, os; "
         f"sys.path.insert(0, '{vendor_src}'); "
@@ -103,6 +107,26 @@ def preload_pipeline(vto_dir: str, vendor_dir: str) -> None:
         f"get_pipeline(); "
         f"print('AI pipeline ready — try-ons should take ~1-3 min now')\""
     )
+
+    if os.environ.get("VTO_PRELOAD_BACKGROUND", "1").lower() in ("1", "true", "yes"):
+        print(
+            "\n[3.5/4] Pre-loading AI pipeline in BACKGROUND (server starts now)",
+            flush=True,
+        )
+        print("  Human parser on CPU — can take 10-20 min; first try-on may wait", flush=True)
+
+        def _bg_preload() -> None:
+            try:
+                run(preload_cmd)
+            except Exception as exc:
+                print(f"Background preload failed (will load on first try-on): {exc}", flush=True)
+
+        threading.Thread(target=_bg_preload, daemon=True).start()
+        return
+
+    print("\n[3.5/4] Pre-loading AI pipeline (~3-20 min first time)...", flush=True)
+    print("  Human parser runs on CPU (saves T4 VRAM for try-on model)", flush=True)
+    run(preload_cmd)
 
 
 def core_weights_ready(weights_dir: str) -> bool:
