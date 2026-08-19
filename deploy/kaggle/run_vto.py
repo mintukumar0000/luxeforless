@@ -54,7 +54,10 @@ def main() -> None:
     weights_dir = f"{vto_dir}/weights"
     os.makedirs(weights_dir, exist_ok=True)
     if not os.path.exists(f"{weights_dir}/model.safetensors"):
+        print("\n[3/4] Downloading model weights (~2GB, 10-15 min)...")
         run(f"python {vendor_dir}/scripts/download_weights.py --weights-dir {weights_dir}")
+    else:
+        print("\n[3/4] Weights already downloaded — skipping")
 
     os.environ["WEIGHTS_DIR"] = weights_dir
     os.environ["RESULTS_DIR"] = f"{vto_dir}/results"
@@ -62,6 +65,7 @@ def main() -> None:
     os.environ["VTO_MAX_IMAGE_SIZE"] = os.environ.get("VTO_MAX_IMAGE_SIZE", "512")
     os.environ["VTO_DEVICE"] = "cuda"
 
+    print("\n[4/4] Starting ngrok tunnel + VTO server...")
     from pyngrok import ngrok
 
     ngrok.set_auth_token(NGROK_AUTHTOKEN)
@@ -70,7 +74,9 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("VTO PUBLIC URL (paste into Vercel env):")
     print(public_url)
-    print("=" * 60 + "\n")
+    print("Health check:", f"{public_url}/health")
+    print("=" * 60)
+    print("Keep this notebook running while testing try-on!\n")
 
     os.chdir(vto_dir)
     sys.path.insert(0, vto_dir)
