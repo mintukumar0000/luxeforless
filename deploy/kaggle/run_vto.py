@@ -22,13 +22,29 @@ def run(cmd: str, cwd: str | None = None) -> None:
     subprocess.check_call(cmd, shell=True, cwd=cwd)
 
 
+def pip_install(*packages: str) -> None:
+    run(f"{sys.executable} -m pip install -q " + " ".join(packages))
+
+
+def setup_python_path(vto_dir: str, vendor_dir: str) -> None:
+    """Ensure FASHN + VTO modules resolve in this Python process."""
+    vendor_src = os.path.join(vendor_dir, "src")
+    for path in (vendor_src, vto_dir):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+    extra = f"{vendor_src}:{vto_dir}"
+    current = os.environ.get("PYTHONPATH", "")
+    if extra not in current:
+        os.environ["PYTHONPATH"] = f"{extra}:{current}" if current else extra
+
+
 def download_core_weights(weights_dir: str) -> None:
     """Download try-on + pose + human-parser HF files (no GPU init — avoids 78% hang)."""
     dwpose_dir = os.path.join(weights_dir, "dwpose")
     os.makedirs(dwpose_dir, exist_ok=True)
 
     run(
-        f"python -c \""
+        f"{sys.executable} -c \""
         f"from huggingface_hub import hf_hub_download; "
         f"import os; "
         f"w='{weights_dir}'; d=os.path.join(w,'dwpose'); "
@@ -71,16 +87,22 @@ def patch_vendor(vendor_dir: str) -> None:
         print("Patched FASHN pipeline: human parser respects VTO_HP_DEVICE", flush=True)
 
 
-def preload_pipeline(vto_dir: str) -> None:
+def preload_pipeline(vto_dir: str, vendor_dir: str) -> None:
     """Load all models before first user request (human parser on CPU to save VRAM)."""
     print("\n[3.5/4] Pre-loading AI pipeline (~3-8 min first time)...", flush=True)
     print("  Human parser runs on CPU (saves T4 VRAM for try-on model)", flush=True)
-    sys.path.insert(0, vto_dir)
-    os.chdir(vto_dir)
-    from app.main import get_pipeline
-
-    get_pipeline()
-    print("AI pipeline ready — try-ons should take ~1-3 min now", flush=True)
+    vendor_src = os.path.join(vendor_dir, "src")
+    # Fresh subprocess so pip install -e is visible (same interpreter as notebook)
+    run(
+        f"{sys.executable} -c \""
+        f"import sys, os; "
+        f"sys.path.insert(0, '{vendor_src}'); "
+        f"sys.path.insert(0, '{vto_dir}'); "
+        f"os.chdir('{vto_dir}'); "
+        f"from app.main import get_pipeline; "
+        f"get_pipeline(); "
+        f"print('AI pipeline ready — try-ons should take ~1-3 min now')\""
+    )
 
 
 def core_weights_ready(weights_dir: str) -> bool:
@@ -103,9 +125,12 @@ def wait_for_port(port: int, timeout: int = 60) -> bool:
     return False
 
 
-def start_vto_server(vto_dir: str) -> None:
+def start_vto_server(vto_dir: str, vendor_dir: str) -> None:
+    vendor_src = os.path.join(vendor_dir, "src")
     os.chdir(vto_dir)
-    sys.path.insert(0, vto_dir)
+    for path in (vendor_src, vto_dir):
+        if path not in sys.path:
+            sys.path.insert(0, path)
     import uvicorn
 
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info")
@@ -144,8 +169,10 @@ def main() -> None:
     patch_vendor(vendor_dir)
 
     # Skip mediapipe on Kaggle — conflicts with protobuf/tensorflow; body validation uses basic fallback
-    run("pip install -q pyngrok uvicorn[standard] python-multipart rembg")
-    run(f"pip install -q -e {vendor_dir}")
+    pip_install("pyngrok", "uvicorn[standard]", "python-multipart", "rembg")
+    pip_install("-e", vendor_dir)
+    setup_python_path(vto_dir, vendor_dir)
+    run(f'{sys.executable} -c "from fashn_vton import TryOnPipeline; print(\'fashn_vton import OK\')"')
 
     weights_dir = f"{vto_dir}/weights"
     os.makedirs(weights_dir, exist_ok=True)
@@ -163,10 +190,10 @@ def main() -> None:
     # Human parser on CPU avoids T4 VRAM hang at ~78% layer load
     os.environ["VTO_HP_DEVICE"] = "cpu"
 
-    preload_pipeline(vto_dir)
+    preload_pipeline(vto_dir, vendor_dir)
 
     print("\n[4/4] Starting VTO server in background...", flush=True)
-    server = threading.Thread(target=start_vto_server, args=(vto_dir,), daemon=True)
+    server = threading.Thread(target=start_vto_server, args=(vto_dir, vendor_dir), daemon=True)
     server.start()
 
     if not wait_for_port(8000):
