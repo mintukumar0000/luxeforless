@@ -79,14 +79,16 @@ def preprocess_person_for_vto(
     canvas = _studio_background((target_w, target_h), background)
 
     scale = min(
-        (target_w * 0.88) / max(subject.width, 1),
-        (target_h * 0.92) / max(subject.height, 1),
+        (target_w * 0.9) / max(subject.width, 1),
+        (target_h * 0.94) / max(subject.height, 1),
     )
     new_w = max(1, int(subject.width * scale))
     new_h = max(1, int(subject.height * scale))
     subject = subject.resize((new_w, new_h), Image.LANCZOS)
 
     x = (target_w - new_w) // 2
-    y = target_h - new_h - int(target_h * 0.03)
+    # Center body with slight downward bias — keeps headroom and feet visible for VTO alignment
+    y = int((target_h - new_h) * 0.52)
+    y = max(int(target_h * 0.02), min(y, target_h - new_h - int(target_h * 0.02)))
     canvas.paste(subject, (x, y), subject)
     return canvas

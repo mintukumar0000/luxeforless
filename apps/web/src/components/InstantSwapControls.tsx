@@ -1,0 +1,336 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { FitResult } from "@/lib/fit-scoring";
+import { analyzeSizeFit, SizeIntelligence } from "@/lib/fit-intelligence";
+import { recolorGarmentOnImage } from "@/lib/garment-recolor";
+import {
+  GARMENT_COLOR_OPTIONS,
+  colorOptionById,
+  sizeToGarmentTransform,
+  tryOnCacheKey,
+} from "@/lib/instant-preview";
+import { cn } from "@/lib/utils";
+import { Palette, Ruler, Zap } from "lucide-react";
+
+interface InstantSwapControlsProps {
+  category: string;
+  fitResult: FitResult;
+  userDeclaredSize: string | null;
+  selectedSize: string;
+  onSizeChange: (size: string) => void;
+  selectedColorId: string;
+  onColorChange: (colorId: string) => void;
+  productId: string;
+  tryOnCache: Record<string, string>;
+  baseColorId: string;
+}
+
+function sizesForCategory(category: string, fitResult: FitResult): string[] {
+  const fromChart = fitResult.sizeRecommendations.map((r) => r.size);
+  if (category === "bottoms") {
+    return fromChart.filter((s) => /^\d+$/.test(s) || s === "Free Size");
+  }
+  return fromChart.filter((s) => !/^\d+$/.test(s) || s === "Free Size");
+}
+
+export function InstantSwapControls({
+  category,
+  fitResult,
+  selectedSize,
+  onSizeChange,
+  selectedColorId,
+  onColorChange,
+  productId,
+  tryOnCache,
+  baseColorId,
+}: InstantSwapControlsProps) {
+  const sizes = sizesForCategory(category, fitResult);
+  const hasCachedColor = (colorId: string) =>
+    Boolean(tryOnCache[tryOnCacheKey(productId, colorId)]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-xs font-medium text-stone-500 uppercase tracking-wide">
+        <Zap size={14} className="text-amber-500" />
+        Instant swap · no new AI run
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
+          <Ruler size={15} className="text-stone-400" />
+          Size
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {sizes.map((size) => {
+            const rec = fitResult.sizeRecommendations.find((r) => r.size === size);
+            return (
+              <button
+                key={size}
+                type="button"
+                onClick={() => onSizeChange(size)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-sm border transition-all duration-300 ease-out",
+                  selectedSize === size
+                    ? "bg-stone-900 text-white border-stone-900 scale-105 shadow-md"
+                    : "bg-white text-stone-600 border-stone-200 hover:border-stone-400 hover:scale-[1.02]"
+                )}
+              >
+                {size}
+                {rec && (
+                  <span className="ml-1 text-[10px] opacity-70">{rec.matchPercent}%</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-stone-400">
+          Garment area scales at {category === "bottoms" ? "waist" : category === "tops" ? "chest" : "body"} — skin stays the same.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-stone-700">
+          <Palette size={15} className="text-stone-400" />
+          Color
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {GARMENT_COLOR_OPTIONS.map((color) => {
+            const cached = hasCachedColor(color.id);
+            const isBase = color.id === baseColorId;
+            return (
+              <button
+                key={color.id}
+                type="button"
+                title={
+                  cached || isBase
+                    ? `${color.label} · AI render`
+                    : `${color.label} · garment-only preview`
+                }
+                onClick={() => onColorChange(color.id)}
+                className={cn(
+                  "relative w-9 h-9 rounded-full border-2 transition-all duration-300 ease-out",
+                  selectedColorId === color.id
+                    ? "border-stone-900 scale-110 ring-2 ring-stone-400 ring-offset-2"
+                    : "border-stone-200 hover:scale-105 hover:border-stone-400"
+                )}
+                style={{ backgroundColor: color.swatch }}
+              >
+                {(cached || isBase) && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border border-white" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-stone-400">
+          Green dot = full AI render. Others recolor fabric only — logos & skin preserved.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+interface UseInstantSwapPreviewOptions {
+  resultUrl: string;
+  productId: string;
+  category: string;
+  fitResult: FitResult;
+  userDeclaredSize: string | null;
+  initialSize: string;
+  initialColorId: string;
+  tryOnCache: Record<string, string>;
+}
+
+export function useInstantSwapPreview({
+  resultUrl,
+  productId,
+  category,
+  fitResult,
+  userDeclaredSize,
+  initialSize,
+  initialColorId,
+  tryOnCache,
+}: UseInstantSwapPreviewOptions) {
+  const [selectedSize, setSelectedSize] = useState(initialSize);
+  const [selectedColorId, setSelectedColorId] = useState(initialColorId);
+  const [swapFlash, setSwapFlash] = useState(false);
+  const [recoloredUrl, setRecoloredUrl] = useState<string | null>(null);
+  const [recoloring, setRecoloring] = useState(false);
+
+  const triggerFlash = useCallback(() => {
+    setSwapFlash(true);
+    const t = setTimeout(() => setSwapFlash(false), 450);
+    return () => clearTimeout(t);
+  }, []);
+
+  const onSizeChange = useCallback(
+    (size: string) => {
+      setSelectedSize(size);
+      triggerFlash();
+    },
+    [triggerFlash]
+  );
+
+  const onColorChange = useCallback(
+    (colorId: string) => {
+      setSelectedColorId(colorId);
+      triggerFlash();
+    },
+    [triggerFlash]
+  );
+
+  const cachedUrl = tryOnCache[tryOnCacheKey(productId, selectedColorId)];
+  const baseUrl =
+    selectedColorId === initialColorId || cachedUrl ? cachedUrl ?? resultUrl : resultUrl;
+  const needsRecolor = !cachedUrl && selectedColorId !== initialColorId;
+
+  useEffect(() => {
+    if (!needsRecolor) {
+      setRecoloredUrl(null);
+      setRecoloring(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRecoloring(true);
+    const color = colorOptionById(selectedColorId);
+
+    recolorGarmentOnImage(baseUrl, color.swatch, category)
+      .then((url) => {
+        if (!cancelled) {
+          setRecoloredUrl(url);
+          setRecoloring(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRecoloredUrl(null);
+          setRecoloring(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, needsRecolor, selectedColorId, category]);
+
+  const displayUrl = needsRecolor ? recoloredUrl ?? baseUrl : baseUrl;
+  const garmentTransform = sizeToGarmentTransform(
+    selectedSize,
+    category,
+    fitResult.recommendedSize
+  );
+
+  const imageStyle = {
+    transform: `scaleX(${garmentTransform.scaleX}) scaleY(${garmentTransform.scaleY})`,
+    transformOrigin: `50% ${garmentTransform.originY}`,
+    transition: "transform 0.55s cubic-bezier(0.34, 1.56, 0.64, 1)",
+    animation: swapFlash ? "swapPop 0.45s ease-out" : undefined,
+  };
+
+  const selectedRec = fitResult.sizeRecommendations.find((r) => r.size === selectedSize);
+  const liveFitScore = selectedRec?.matchPercent ?? fitResult.fitScore;
+  const liveIntelligence: SizeIntelligence = analyzeSizeFit(
+    selectedSize === userDeclaredSize ? userDeclaredSize : selectedSize,
+    {
+      ...fitResult,
+      recommendedSize: selectedSize,
+      fitScore: liveFitScore,
+    }
+  );
+
+  return {
+    selectedSize,
+    selectedColorId,
+    onSizeChange,
+    onColorChange,
+    displayUrl,
+    imageStyle,
+    swapFlash,
+    liveFitScore,
+    liveIntelligence,
+    isApproximateColor: needsRecolor,
+    recoloring,
+    category,
+  };
+}
+
+/** Animated wrapper for try-on image — crossfade + garment region scaling */
+export function AnimatedTryOnImage({
+  src,
+  alt,
+  imageStyle,
+  swapFlash,
+  isApproximateColor,
+  recoloring,
+  category,
+}: {
+  src: string;
+  alt: string;
+  imageStyle: React.CSSProperties;
+  swapFlash: boolean;
+  isApproximateColor: boolean;
+  recoloring?: boolean;
+  category: string;
+}) {
+  const [layers, setLayers] = useState<{ src: string; visible: boolean }[]>([
+    { src, visible: true },
+  ]);
+
+  useEffect(() => {
+    setLayers((prev) => {
+      const top = prev[prev.length - 1];
+      if (top?.src === src) return prev;
+      return [...prev.slice(-1), { src, visible: false }];
+    });
+  }, [src]);
+
+  const handleLoad = (index: number) => {
+    setLayers((prev) =>
+      prev.map((layer, i) => ({
+        ...layer,
+        visible: i === index,
+      }))
+    );
+  };
+
+  return (
+    <div className="relative aspect-[3/4] bg-stone-200 rounded-xl overflow-hidden">
+      <div
+        className={cn(
+          "absolute inset-0 bg-white transition-opacity duration-300 pointer-events-none z-10",
+          swapFlash ? "opacity-35" : "opacity-0"
+        )}
+      />
+      {layers.map((layer, index) => (
+        <div
+          key={`${layer.src}-${index}`}
+          className={cn(
+            "absolute inset-0 transition-opacity duration-700 ease-in-out",
+            layer.visible ? "opacity-100 z-[2]" : "opacity-0 z-[1]"
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={layer.src}
+            alt={alt}
+            onLoad={() => handleLoad(index)}
+            className="w-full h-full object-cover"
+            style={layer.visible ? imageStyle : undefined}
+          />
+        </div>
+      ))}
+      {recoloring && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-20">
+          <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+      {isApproximateColor && !recoloring && (
+        <span className="absolute bottom-2 left-2 right-2 text-center text-[10px] bg-black/50 text-white rounded-md py-1 px-2 z-20">
+          Garment-only color preview · {category === "bottoms" ? "bottoms" : "top"} fabric recolored
+        </span>
+      )}
+    </div>
+  );
+}
