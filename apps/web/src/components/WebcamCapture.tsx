@@ -16,7 +16,8 @@ interface WebcamCaptureProps {
     imageBase64: string,
     estimates: BodyEstimates | null,
     sizeProfile: SizeProfile,
-    tryOnFocus: TryOnFocus
+    tryOnFocus: TryOnFocus,
+    validationPassed: boolean
   ) => void;
   onCancel?: () => void;
 }
@@ -118,18 +119,20 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
       ]);
 
       if (!validationRes.ok) {
-        throw new Error(validationRes.error);
+        setValidation({
+          valid: false,
+          issues: [
+            "Pose check service unavailable. Retake when VTO GPU is running, or check your connection.",
+          ],
+          estimates: null,
+        });
+      } else {
+        setValidation(validationRes.result);
       }
-      setValidation(validationRes.result);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Validation service unavailable";
-      const isServiceError =
-        msg.includes("fetch") || msg.includes("500") || msg.includes("Validation failed");
+    } catch {
       setValidation({
-        valid: isServiceError,
-        issues: isServiceError
-          ? ["Pose check unavailable — you can continue, but size recommendations may be less accurate."]
-          : [msg],
+        valid: false,
+        issues: ["Could not validate pose. Retake your photo when the VTO service is online."],
         estimates: null,
       });
       if (!studioCapture) setStudioCapture(rawCapture);
@@ -140,9 +143,16 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
   }, [rawCapture, studioCapture]);
 
   const confirmCapture = () => {
+    if (!validation?.valid) return;
     const finalImage = studioCapture || rawCapture;
     if (finalImage) {
-      onCapture(finalImage, validation?.estimates || null, sizeProfile, tryOnFocus);
+      onCapture(
+        finalImage,
+        validation.estimates || null,
+        sizeProfile,
+        tryOnFocus,
+        validation.valid
+      );
     }
   };
 
@@ -223,7 +233,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
         >
           <div className="flex items-center gap-2 font-medium mb-2">
             {validation.valid ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-            {validation.valid ? "Studio portrait ready!" : "You can continue, or retake for better results:"}
+            {validation.valid ? "Studio portrait ready!" : "Fix these issues and retake:"}
           </div>
           <p className="text-stone-600 mb-2">
             Mode: <strong>{tryOnFocus === "upper" ? "Tops" : tryOnFocus === "lower" ? "Bottoms" : "Full outfit"}</strong>
@@ -268,9 +278,10 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
             </button>
             <button
               onClick={confirmCapture}
-              className="px-6 py-2.5 rounded-xl bg-stone-900 text-white"
+              disabled={!validation?.valid}
+              className="px-6 py-2.5 rounded-xl bg-stone-900 text-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {validation?.valid ? "Start browsing" : "Continue anyway"}
+              Start browsing
             </button>
           </>
         )}

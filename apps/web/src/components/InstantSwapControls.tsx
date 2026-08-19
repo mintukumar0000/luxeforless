@@ -3,13 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { FitResult } from "@/lib/fit-scoring";
 import { analyzeSizeFit, SizeIntelligence } from "@/lib/fit-intelligence";
+import { normalizeColorId } from "@/lib/product-variants";
 import { processGarmentInstantPreview } from "@/lib/garment-instant-preview";
-import {
-  GARMENT_COLOR_OPTIONS,
-  freeSizeFitHint,
-  sizesWithFreeSize,
-  tryOnCacheKey,
-} from "@/lib/instant-preview";
+import { GARMENT_COLOR_OPTIONS, freeSizeFitHint, sizesWithFreeSize, tryOnCacheKey } from "@/lib/instant-preview";
 import { cn } from "@/lib/utils";
 import { Palette, Ruler, Zap } from "lucide-react";
 
@@ -24,6 +20,7 @@ interface InstantSwapControlsProps {
   productId: string;
   tryOnCache: Record<string, string>;
   baseColorId: string;
+  aiColorIds?: string[];
 }
 
 function sizesForCategory(category: string, fitResult: FitResult): string[] {
@@ -45,6 +42,7 @@ export function InstantSwapControls({
   productId,
   tryOnCache,
   baseColorId,
+  aiColorIds = [],
 }: InstantSwapControlsProps) {
   const sizes = sizesForCategory(category, fitResult);
   const hasCachedColor = (colorId: string) =>
@@ -103,6 +101,7 @@ export function InstantSwapControls({
         <div className="flex flex-wrap gap-2">
           {GARMENT_COLOR_OPTIONS.map((color) => {
             const cached = hasCachedColor(color.id);
+            const hasAiAsset = aiColorIds.includes(color.id) || aiColorIds.includes(normalizeColorId(color.id));
             const isBase = color.id === baseColorId;
             return (
               <button
@@ -110,8 +109,10 @@ export function InstantSwapControls({
                 type="button"
                 title={
                   cached || isBase
-                    ? `${color.label} · AI render`
-                    : `${color.label} · garment-only preview`
+                    ? `${color.label} · AI render cached`
+                    : hasAiAsset
+                      ? `${color.label} · Run AI for realistic`
+                      : `${color.label} · quick preview only`
                 }
                 onClick={() => onColorChange(color.id)}
                 className={cn(
@@ -122,15 +123,15 @@ export function InstantSwapControls({
                 )}
                 style={{ backgroundColor: color.swatch }}
               >
-                {(cached || isBase) && (
-                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border border-white" />
+                {(cached || isBase || hasAiAsset) && (
+                  <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border border-white ${cached || isBase ? "bg-green-500" : "bg-blue-500"}`} />
                 )}
               </button>
             );
           })}
         </div>
         <p className="text-[11px] text-stone-400">
-          Quick fabric preview — for photo-realistic color, tap &quot;Run AI color&quot; below (uses GPU).
+          Green = AI cached · Blue = garment in catalog · Tap Run AI for photo-realistic color
         </p>
       </div>
     </div>

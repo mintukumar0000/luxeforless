@@ -11,17 +11,19 @@ import { OutfitBuilder } from "@/components/OutfitBuilder";
 import { FitResult } from "@/lib/fit-scoring";
 import { BodyEstimates } from "@/lib/fit-scoring";
 import { SizeProfile } from "@/lib/size-options";
-import { productMatchesFocus, vtoCategoryForProduct, TryOnFocus } from "@/lib/try-on-focus";
+import { productMatchesFocus, TryOnFocus } from "@/lib/try-on-focus";
 import { SizeIntelligence } from "@/lib/fit-intelligence";
 import { GARMENT_COLOR_OPTIONS, tryOnCacheKey } from "@/lib/instant-preview";
-import { APP_NAME } from "@/lib/utils";
 import {
-  pollTryOnJob,
-  submitTryOnJob,
-  toProxiedResultUrl,
-  urlToDataUrl,
-} from "@/lib/vto-client";
+  garmentForColor,
+  normalizeColorId,
+  variantForSizeColor,
+} from "@/lib/product-variants";
+import { runFullOutfitTryOn, runSingleTryOn } from "@/lib/vto-pipeline";
+import { APP_NAME } from "@/lib/utils";
 import { Camera, Upload, Sparkles } from "lucide-react";
+
+import { OutfitSelection } from "@/lib/outfit-selection";
 
 type Step = "welcome" | "consent" | "capture" | "browse";
 
@@ -30,6 +32,8 @@ const TRYON_PROGRESS_LABELS: Record<string, string> = {
   preprocessing: "Preparing your studio photo",
   loading_model: "Loading AI models",
   generating: "Generating ultra-realistic try-on",
+  generating_top: "AI try-on: top garment",
+  generating_bottom: "AI try-on: bottom garment",
   done: "Done",
   error: "Failed",
 };
@@ -48,6 +52,8 @@ interface TryOnState {
   product: Product;
   userDeclaredSize: string | null;
   sizeIntelligence: SizeIntelligence | null;
+  selectedSize: string;
+  selectedColorId: string;
 }
 
 export default function MirrorPage() {
@@ -65,7 +71,7 @@ export default function MirrorPage() {
   } = useSession();
   const [step, setStep] = useState<Step>("welcome");
   const [storeId, setStoreId] = useState<string | null>(null);
-  const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
+  const [outfitSelections, setOutfitSelections] = useState<OutfitSelection[]>([]);
   const [tryOnState, setTryOnState] = useState<TryOnState | null>(null);
   const [loadingProductId, setLoadingProductId] = useState<string | null>(null);
   const [tryOnProgress, setTryOnProgress] = useState<string | null>(null);
@@ -82,7 +88,13 @@ export default function MirrorPage() {
   };
 
   const handleCapture = useCallback(
-    async (image: string, estimates: BodyEstimates | null, profile: SizeProfile, focus: TryOnFocus) => {
+    async (
+      image: string,
+      estimates: BodyEstimates | null,
+      profile: SizeProfile,
+      focus: TryOnFocus,
+      validationPassed: boolean
+    ) => {
       setCaptureImage(image);
       setSizeProfile(profile);
       setTryOnFocus(focus);
@@ -92,7 +104,14 @@ export default function MirrorPage() {
         await fetch("/api/sessions/update", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, estimates, sizeProfile: profile, tryOnFocus: focus }),
+          body: JSON.stringify({
+            sessionId,
+            captureImage: image,
+            estimates,
+            sizeProfile: profile,
+            tryOnFocus: focus,
+            validationPassed,
+          }),
         });
       }
 
@@ -101,11 +120,69 @@ export default function MirrorPage() {
     [sessionId, setCaptureImage, setBodyEstimates, setSizeProfile, setTryOnFocus]
   );
 
-  const handleTryOn = async (product: Product) => {
+  const completeTryOn = async (
+    product: Product,
+    resultUrl: string,
+    processingTimeMs: number,
+    opts: { colorId: string; selectedSize?: string; variantId?: string }
+  ) => {
+    const res = await fetch("/api/tryon/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        productId: product.id,
+        resultUrl,
+        processingTimeMs,
+        colorId: opts.colorId,
+        selectedSize: opts.selectedSize,
+        variantId: opts.variantId,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Try-on failed (${res.status})`);
+    }
+
+    setTryOnCache((prev) => ({
+      ...prev,
+      [tryOnCacheKey(product.id, opts.colorId)]: data.resultUrl,
+    }));
+
+    setTryOnState({
+      resultUrl: data.resultUrl,
+      productName: product.name,
+      price: Number(product.basePrice),
+      fitResult: data.fitResult,
+      processingTimeMs: data.processingTimeMs,
+      product,
+      userDeclaredSize: data.userDeclaredSize ?? null,
+      sizeIntelligence: data.sizeIntelligence ?? null,
+      selectedSize: data.fitResult.recommendedSize,
+      selectedColorId: opts.colorId,
+    });
+  };
+
+  const handleTryOn = async (product: Product, colorId?: string) => {
     if (!captureImage || !sessionId) return;
 
     if (!productMatchesFocus(product.category, tryOnFocus)) {
-      alert(`This item doesn't match your "${tryOnFocus}" mode. Switch mode by retaking your photo.`);
+      alert(`This item doesn't match your "${tryOnFocus}" mode. Retake your photo to switch mode.`);
+      return;
+    }
+
+    const resolvedColorId =
+      colorId ??
+      GARMENT_COLOR_OPTIONS.find((c) => c.label.toLowerCase() === product.color?.toLowerCase())
+        ?.id ??
+      normalizeColorId(product.color);
+
+    const garmentAsset = garmentForColor(product, resolvedColorId);
+    if (!garmentAsset?.vtoReadyUrl) {
+      alert(
+        `No AI garment photo for color "${resolvedColorId}". Upload it in Upload Studio → Add color variant.`
+      );
       return;
     }
 
@@ -113,62 +190,18 @@ export default function MirrorPage() {
     setTryOnProgress("queued");
 
     try {
-      const garmentAsset = product.garmentAssets?.[0];
-      if (!garmentAsset?.vtoReadyUrl) {
-        alert("Garment image not found for this product");
-        return;
-      }
-
-      const garmentDataUrl = await urlToDataUrl(garmentAsset.vtoReadyUrl);
-      const isDemoModelShot =
-        garmentAsset.vtoReadyUrl?.includes("sample-garment") ||
-        garmentAsset.garmentPhotoType === "model";
-      const submit = await submitTryOnJob({
+      const { resultUrl, processingTimeMs } = await runSingleTryOn({
         personImageBase64: captureImage,
-        garmentDataUrl,
-        category: vtoCategoryForProduct(product.category),
-        garmentPhotoType: isDemoModelShot ? "model" : "flat-lay",
-      });
-
-      const vtoResult = await pollTryOnJob(submit.job_id, {
+        product,
+        garmentAsset,
         onProgress: setTryOnProgress,
       });
-      const resultUrl = toProxiedResultUrl(vtoResult.result_url);
 
-      const res = await fetch("/api/tryon/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          productId: product.id,
-          resultUrl,
-          processingTimeMs: vtoResult.processing_time_ms,
-        }),
-      });
+      const variant = variantForSizeColor(product, product.variants[0]?.size ?? "M", resolvedColorId);
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        alert(data.error || `Try-on failed (${res.status})`);
-        return;
-      }
-
-      const colorId =
-        GARMENT_COLOR_OPTIONS.find((c) => c.label.toLowerCase() === product.color?.toLowerCase())
-          ?.id ?? "black";
-      setTryOnCache((prev) => ({
-        ...prev,
-        [tryOnCacheKey(product.id, colorId)]: data.resultUrl,
-      }));
-
-      setTryOnState({
-        resultUrl: data.resultUrl,
-        productName: product.name,
-        price: Number(product.basePrice),
-        fitResult: data.fitResult,
-        processingTimeMs: data.processingTimeMs,
-        product,
-        userDeclaredSize: data.userDeclaredSize ?? null,
-        sizeIntelligence: data.sizeIntelligence ?? null,
+      await completeTryOn(product, resultUrl, processingTimeMs, {
+        colorId: resolvedColorId,
+        variantId: variant?.id,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
@@ -179,20 +212,101 @@ export default function MirrorPage() {
     }
   };
 
-  const handleSelectProduct = (product: Product) => {
-    setSelectedProducts((prev) => {
-      const exists = prev.find((p) => p.id === product.id);
-      if (exists) return prev.filter((p) => p.id !== product.id);
-      const filtered = prev.filter((p) => p.category !== product.category);
-      return [...filtered, product];
+  const handleRunAiColor = async (colorId: string) => {
+    if (!tryOnState) return;
+    await handleTryOn(tryOnState.product, colorId);
+  };
+
+  const handleFullOutfitTryOn = async () => {
+    if (!captureImage || !sessionId) return;
+
+    const top = outfitSelections.find((s) => s.product.category === "tops");
+    const bottom = outfitSelections.find((s) => s.product.category === "bottoms");
+    if (!top || !bottom) {
+      alert("Select a top and a bottom in Outfit Builder first.");
+      return;
+    }
+
+    const topAsset = garmentForColor(top.product, top.colorId);
+    const bottomAsset = garmentForColor(bottom.product, bottom.colorId);
+    if (!topAsset?.vtoReadyUrl || !bottomAsset?.vtoReadyUrl) {
+      alert("Missing garment images for selected colors.");
+      return;
+    }
+
+    setLoadingProductId("full-outfit");
+    setTryOnProgress("generating_top");
+
+    try {
+      const { resultUrl, processingTimeMs } = await runFullOutfitTryOn(
+        captureImage,
+        top.product,
+        topAsset,
+        bottom.product,
+        bottomAsset,
+        setTryOnProgress
+      );
+
+      await completeTryOn(top.product, resultUrl, processingTimeMs, {
+        colorId: top.colorId,
+        selectedSize: top.size,
+        variantId: top.variantId,
+      });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Full outfit try-on failed");
+    } finally {
+      setLoadingProductId(null);
+      setTryOnProgress(null);
+    }
+  };
+
+  const handleToggleProduct = (product: Product) => {
+    setOutfitSelections((prev) => {
+      const exists = prev.find((s) => s.product.id === product.id);
+      if (exists) return prev.filter((s) => s.product.id !== product.id);
+      const filtered = prev.filter((s) => s.product.category !== product.category);
+      const colorId = normalizeColorId(product.color);
+      const size =
+        product.category === "bottoms"
+          ? sizeProfile?.lower ?? "32"
+          : sizeProfile?.upper ?? "M";
+      const variant = variantForSizeColor(product, size, colorId);
+      return [
+        ...filtered,
+        {
+          product,
+          size,
+          colorId,
+          variantId: variant?.id ?? product.variants[0]?.id ?? "",
+        },
+      ];
     });
   };
 
+  const handleAddToOutfit = (size: string, colorId: string) => {
+    if (!tryOnState) return;
+    const product = tryOnState.product;
+    const variant = variantForSizeColor(product, size, colorId);
+    setOutfitSelections((prev) => {
+      const filtered = prev.filter((s) => s.product.category !== product.category);
+      return [
+        ...filtered,
+        {
+          product,
+          size,
+          colorId,
+          variantId: variant?.id ?? product.variants[0]?.id ?? "",
+        },
+      ];
+    });
+    setTryOnState(null);
+  };
+
   const handleSaveOutfit = async () => {
-    if (!sessionId || selectedProducts.length === 0) return;
+    if (!sessionId || outfitSelections.length === 0) return;
     setSavingOutfit(true);
 
-    const variantIds = selectedProducts.map((p) => p.variants[0]?.id).filter(Boolean);
+    const variantIds = outfitSelections.map((s) => s.variantId).filter(Boolean);
 
     await fetch("/api/outfits", {
       method: "POST",
@@ -202,7 +316,7 @@ export default function MirrorPage() {
 
     setSavingOutfit(false);
     setOutfitSaved(true);
-    setSelectedProducts([]);
+    setOutfitSelections([]);
   };
 
   return (
@@ -211,11 +325,14 @@ export default function MirrorPage() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-serif tracking-tight">{APP_NAME}</h1>
-            <p className="text-xs text-stone-400">Virtual Try-On · Stage 1 MVP</p>
+            <p className="text-xs text-stone-400">Virtual Try-On · Stage 1 Complete</p>
           </div>
           <nav className="flex gap-4 text-sm">
             <Link href="/studio" className="flex items-center gap-1 text-stone-600 hover:text-stone-900">
               <Upload size={14} /> Upload Studio
+            </Link>
+            <Link href="/admin" className="text-stone-600 hover:text-stone-900">
+              Admin
             </Link>
           </nav>
         </div>
@@ -227,7 +344,7 @@ export default function MirrorPage() {
             <Sparkles className="mx-auto text-amber-500" size={48} />
             <h2 className="text-4xl font-serif">See Yourself in Any Outfit</h2>
             <p className="text-stone-500 max-w-md mx-auto">
-              Browse our catalog, virtually try on clothes with AI, and get an estimated size recommendation — all before visiting the fitting room.
+              Browse our catalog, virtually try on clothes with AI, and get an estimated size recommendation.
             </p>
             <button
               onClick={() => setStep("consent")}
@@ -239,10 +356,7 @@ export default function MirrorPage() {
         )}
 
         {step === "consent" && (
-          <ConsentScreen
-            onAccept={handleConsent}
-            onDecline={() => setStep("welcome")}
-          />
+          <ConsentScreen onAccept={handleConsent} onDecline={() => setStep("welcome")} />
         )}
 
         {step === "capture" && (
@@ -254,10 +368,7 @@ export default function MirrorPage() {
                 Stand 6 feet back, full body visible, arms at your sides
               </p>
             </div>
-            <WebcamCapture
-              onCapture={handleCapture}
-              onCancel={() => setStep("consent")}
-            />
+            <WebcamCapture onCapture={handleCapture} onCancel={() => setStep("consent")} />
           </div>
         )}
 
@@ -267,17 +378,8 @@ export default function MirrorPage() {
               <div>
                 <h2 className="text-2xl font-serif">Browse & Try On</h2>
                 <p className="text-stone-500 text-sm">
-                  Tap a garment to try it on · Build an outfit with tops + bottoms
+                  Tap try-on for AI render · Build outfit · Try full look
                 </p>
-                {sizeProfile && (
-                  <p className="text-xs text-stone-400 mt-1">
-                    {tryOnFocus === "upper" && `Tops · size ${sizeProfile.upper}`}
-                    {tryOnFocus === "lower" && `Bottoms · waist ${sizeProfile.lower}`}
-                    {tryOnFocus === "full" && `Full outfit · ${sizeProfile.upper} top · ${sizeProfile.lower} waist`}
-                    {" · "}
-                    <span className="text-stone-500">Tap any item to try on</span>
-                  </p>
-                )}
               </div>
               {captureImage && (
                 <div className="w-12 h-16 rounded-lg overflow-hidden border-2 border-stone-300">
@@ -289,15 +391,15 @@ export default function MirrorPage() {
 
             {outfitSaved && (
               <div className="bg-green-50 text-green-800 p-4 rounded-xl text-sm">
-                Outfit saved! You can continue trying on more items.
+                Outfit saved with your selected sizes!
               </div>
             )}
 
             <ProductCatalog
               storeId={storeId}
               tryOnFocus={tryOnFocus}
-              selectedIds={selectedProducts.map((p) => p.id)}
-              onSelect={handleSelectProduct}
+              selectedIds={outfitSelections.map((s) => s.product.id)}
+              onSelect={handleToggleProduct}
               onTryOn={handleTryOn}
               loadingProductId={loadingProductId}
             />
@@ -308,9 +410,8 @@ export default function MirrorPage() {
                   <div className="w-10 h-10 border-4 border-stone-200 border-t-stone-900 rounded-full animate-spin mx-auto" />
                   <h3 className="font-serif text-lg">Generating AI Try-On</h3>
                   <p className="text-sm text-stone-500">
-                    Real AI is running on your GPU session.
-                    {tryOnProgress ? ` ${formatTryOnProgress(tryOnProgress)}.` : " "}
-                    First try-on after a Kaggle restart can take 5–8 min — don&apos;t close this tab.
+                    {tryOnProgress ? formatTryOnProgress(tryOnProgress) : "Starting..."}
+                    {" · "}Real AI on GPU — keep this tab open.
                   </p>
                 </div>
               </div>
@@ -320,10 +421,12 @@ export default function MirrorPage() {
       </main>
 
       <OutfitBuilder
-        selectedProducts={selectedProducts}
-        onRemove={(id) => setSelectedProducts((p) => p.filter((x) => x.id !== id))}
+        selections={outfitSelections}
+        onRemove={(id) => setOutfitSelections((p) => p.filter((s) => s.product.id !== id))}
         onSaveOutfit={handleSaveOutfit}
+        onTryFullOutfit={handleFullOutfitTryOn}
         saving={savingOutfit}
+        tryingFullOutfit={loadingProductId === "full-outfit"}
       />
 
       {tryOnState && (
@@ -337,10 +440,9 @@ export default function MirrorPage() {
           processingTimeMs={tryOnState.processingTimeMs}
           tryOnCache={tryOnCache}
           onClose={() => setTryOnState(null)}
-          onAddToOutfit={() => {
-            handleSelectProduct(tryOnState.product);
-            setTryOnState(null);
-          }}
+          onAddToOutfit={handleAddToOutfit}
+          onRunAiColor={handleRunAiColor}
+          runningAiColor={loadingProductId === tryOnState.product.id}
         />
       )}
     </div>

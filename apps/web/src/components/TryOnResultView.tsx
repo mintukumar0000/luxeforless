@@ -4,7 +4,8 @@ import { formatPrice } from "@/lib/utils";
 import { FitScorePanel } from "./FitScorePanel";
 import { FitResult } from "@/lib/fit-scoring";
 import { SizeIntelligence } from "@/lib/fit-intelligence";
-import { GARMENT_COLOR_OPTIONS, colorOptionById } from "@/lib/instant-preview";
+import { colorOptionById, tryOnCacheKey } from "@/lib/instant-preview";
+import { availableColors, normalizeColorId } from "@/lib/product-variants";
 import {
   AnimatedTryOnImage,
   InstantSwapControls,
@@ -25,6 +26,8 @@ interface TryOnResultProps {
   tryOnCache: Record<string, string>;
   onClose: () => void;
   onAddToOutfit: (size: string, colorId: string) => void;
+  onRunAiColor: (colorId: string) => void;
+  runningAiColor?: boolean;
 }
 
 export function TryOnResultView({
@@ -38,10 +41,11 @@ export function TryOnResultView({
   tryOnCache,
   onClose,
   onAddToOutfit,
+  onRunAiColor,
+  runningAiColor,
 }: TryOnResultProps) {
-  const baseColorId =
-    GARMENT_COLOR_OPTIONS.find((c) => c.label.toLowerCase() === product.color?.toLowerCase())?.id ??
-    "black";
+  const baseColorId = normalizeColorId(product.color);
+  const aiColorIds = availableColors(product);
 
   const swap = useInstantSwapPreview({
     resultUrl,
@@ -100,7 +104,23 @@ export function TryOnResultView({
               productId={product.id}
               tryOnCache={tryOnCache}
               baseColorId={baseColorId}
+              aiColorIds={aiColorIds}
             />
+
+            {swap.selectedColorId !== baseColorId &&
+              !tryOnCache[tryOnCacheKey(product.id, swap.selectedColorId)] && (
+                <button
+                  type="button"
+                  disabled={runningAiColor}
+                  onClick={() => onRunAiColor(swap.selectedColorId)}
+                  className="w-full py-2.5 rounded-xl border-2 border-amber-500 text-amber-800 bg-amber-50 font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Sparkles size={16} />
+                  {runningAiColor
+                    ? "Running AI for this color..."
+                    : `Run AI for ${colorOptionById(swap.selectedColorId).label} (realistic)`}
+                </button>
+              )}
 
             <FitScorePanel
               fitResult={liveFitResult}

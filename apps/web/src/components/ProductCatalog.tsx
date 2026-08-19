@@ -13,12 +13,15 @@ interface Product {
   basePrice: string;
   color: string;
   garmentAssets: {
+    color: string;
     vtoReadyUrl: string | null;
     imageUrl: string;
     garmentPhotoType?: string;
   }[];
-  variants: { id: string; size: string; stockQty: number }[];
+  variants: { id: string; size: string; color: string; stockQty: number }[];
 }
+
+export type { Product };
 
 interface ProductCatalogProps {
   storeId: string;
@@ -148,5 +151,3 @@ export function ProductCatalog({
     </div>
   );
 }
-
-export type { Product };

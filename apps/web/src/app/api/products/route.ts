@@ -16,9 +16,9 @@ export async function GET(req: NextRequest) {
       ...(category ? { category: category as ProductCategory } : {}),
     },
     include: {
-      variants: true,
-      garmentAssets: { where: { isPrimary: true }, take: 1 },
-      sizeChart: true,
+      variants: { orderBy: [{ color: "asc" }, { size: "asc" }] },
+      garmentAssets: { orderBy: { color: "asc" } },
+      sizeChart: { orderBy: { size: "asc" } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -43,6 +43,15 @@ export async function POST(req: NextRequest) {
     garmentPhotoType,
   } = body;
 
+  const normalizedColor = (color || "black").toLowerCase();
+  const sizeList: string[] = sizes || ["S", "M", "L", "XL"];
+
+  let persistedUrl = vtoReadyUrl;
+  if (vtoReadyUrl?.startsWith("data:")) {
+    const { saveDataUrl } = await import("@/lib/storage");
+    persistedUrl = await saveDataUrl("garments", vtoReadyUrl);
+  }
+
   const product = await prisma.product.create({
     data: {
       storeId,
@@ -51,11 +60,12 @@ export async function POST(req: NextRequest) {
       description,
       category: category as ProductCategory,
       basePrice,
-      color,
+      color: normalizedColor,
       pattern,
       variants: {
-        create: (sizes || ["S", "M", "L", "XL"]).map((size: string) => ({
+        create: sizeList.map((size: string) => ({
           size,
+          color: normalizedColor,
           stockQty: 10,
         })),
       },
@@ -68,6 +78,7 @@ export async function POST(req: NextRequest) {
             waistCm?: number;
             hipCm?: number;
             lengthCm?: number;
+            inseamCm?: number;
           }) => ({
             size: entry.size,
             chestCm: entry.chestCm,
@@ -75,14 +86,16 @@ export async function POST(req: NextRequest) {
             waistCm: entry.waistCm,
             hipCm: entry.hipCm,
             lengthCm: entry.lengthCm,
+            inseamCm: entry.inseamCm,
           })
         ),
       },
-      garmentAssets: vtoReadyUrl
+      garmentAssets: persistedUrl
         ? {
             create: {
-              imageUrl: vtoReadyUrl,
-              vtoReadyUrl,
+              color: normalizedColor,
+              imageUrl: persistedUrl,
+              vtoReadyUrl: persistedUrl,
               garmentPhotoType: garmentPhotoType || "flat_lay",
               isPrimary: true,
             },

@@ -3,7 +3,6 @@
 import { useState, useRef } from "react";
 import { Upload, Loader2, CheckCircle } from "lucide-react";
 import { cn, CATEGORY_LABELS } from "@/lib/utils";
-import { processGarmentImage } from "@/lib/vto-client";
 
 interface GarmentUploadStudioProps {
   storeId: string;
@@ -52,9 +51,13 @@ export function GarmentUploadStudio({ storeId, onProductCreated }: GarmentUpload
     formData.append("image", file);
 
     try {
-      const data = await processGarmentImage(file);
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await fetch("/api/process-garment", { method: "POST", body: formData });
+      if (!res.ok) throw new Error("Process failed");
+      const data = await res.json();
       setProcessed({
-        vtoReadyUrl: `data:image/png;base64,${data.vto_ready_image}`,
+        vtoReadyUrl: data.vtoReadyUrl,
         detected_color: data.detected_color,
         suggested_category: data.suggested_category,
         background_removed: data.background_removed,

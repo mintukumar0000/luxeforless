@@ -79,6 +79,7 @@ model ProductVariant {
   id        String   @id @default(cuid())
   productId String   @map("product_id")
   size      String
+  color     String   @default("black")
   sku       String?
   stockQty  Int      @default(0) @map("stock_qty")
   priceAdj  Decimal  @default(0) @map("price_adj") @db.Decimal(10, 2)
@@ -88,7 +89,7 @@ model ProductVariant {
   tryons          Tryon[]
   outfitItems     OutfitItem[]
   analyticsEvents AnalyticsEvent[]
-  @@unique([productId, size])
+  @@unique([productId, size, color])
   @@map("product_variants")
 }
 
@@ -112,12 +113,14 @@ model SizeChartEntry {
 model GarmentAsset {
   id               String           @id @default(cuid())
   productId        String           @map("product_id")
+  color            String           @default("black")
   imageUrl         String           @map("image_url")
   vtoReadyUrl      String?          @map("vto_ready_url")
   garmentPhotoType GarmentPhotoType @default(flat_lay) @map("garment_photo_type")
   isPrimary        Boolean          @default(true) @map("is_primary")
   createdAt        DateTime         @default(now()) @map("created_at")
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@unique([productId, color])
   @@map("garment_assets")
 }
 
