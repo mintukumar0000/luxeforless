@@ -14,11 +14,44 @@ REPO_URL = os.environ.get(
     "https://github.com/mintukumar0000/luxeforless.git",
 )
 NGROK_AUTHTOKEN = os.environ.get("NGROK_AUTHTOKEN", "")
+URL_FILE = "/kaggle/working/VTO_PUBLIC_URL.txt"
 
 
 def run(cmd: str, cwd: str | None = None) -> None:
     print(f"\n$ {cmd}\n", flush=True)
     subprocess.check_call(cmd, shell=True, cwd=cwd)
+
+
+def wait_for_port(port: int, timeout: int = 60) -> bool:
+    import socket
+
+    for _ in range(timeout):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return True
+        except OSError:
+            time.sleep(1)
+    return False
+
+
+def start_vto_server(vto_dir: str) -> None:
+    os.chdir(vto_dir)
+    sys.path.insert(0, vto_dir)
+    import uvicorn
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info")
+
+
+def publish_url(public_url: str) -> None:
+    with open(URL_FILE, "w") as f:
+        f.write(public_url)
+    print("\n" + "=" * 60, flush=True)
+    print("VTO PUBLIC URL (paste into Vercel env):", flush=True)
+    print(public_url, flush=True)
+    print("Health check:", f"{public_url}/health", flush=True)
+    print("Saved to:", URL_FILE, flush=True)
+    print("=" * 60, flush=True)
+    print("Keep this notebook running while testing try-on!\n", flush=True)
 
 
 def main() -> None:
@@ -39,7 +72,6 @@ def main() -> None:
             "git clone --depth 1 https://github.com/fashn-ai/fashn-vton-1.5.git "
             f"{vendor_dir}"
         )
-        # Apple Silicon patch not needed on CUDA, but harmless if present
         mmdit = f"{vendor_dir}/src/fashn_vton/tryon_mmdit.py"
         if os.path.exists(mmdit):
             with open(mmdit) as f:
@@ -54,10 +86,10 @@ def main() -> None:
     weights_dir = f"{vto_dir}/weights"
     os.makedirs(weights_dir, exist_ok=True)
     if not os.path.exists(f"{weights_dir}/model.safetensors"):
-        print("\n[3/4] Downloading model weights (~2GB, 10-15 min)...")
+        print("\n[3/4] Downloading model weights (~2GB, 10-15 min)...", flush=True)
         run(f"python {vendor_dir}/scripts/download_weights.py --weights-dir {weights_dir}")
     else:
-        print("\n[3/4] Weights already downloaded — skipping")
+        print("\n[3/4] Weights already downloaded — skipping", flush=True)
 
     os.environ["WEIGHTS_DIR"] = weights_dir
     os.environ["RESULTS_DIR"] = f"{vto_dir}/results"
@@ -65,24 +97,27 @@ def main() -> None:
     os.environ["VTO_MAX_IMAGE_SIZE"] = os.environ.get("VTO_MAX_IMAGE_SIZE", "512")
     os.environ["VTO_DEVICE"] = "cuda"
 
-    print("\n[4/4] Starting ngrok tunnel + VTO server...")
+    print("\n[4/4] Starting VTO server in background...", flush=True)
+    server = threading.Thread(target=start_vto_server, args=(vto_dir,), daemon=True)
+    server.start()
+
+    if not wait_for_port(8000):
+        print("ERROR: VTO server did not start on port 8000", flush=True)
+        sys.exit(1)
+    print("VTO server ready on port 8000", flush=True)
+
     from pyngrok import ngrok
 
+    print("Connecting ngrok tunnel...", flush=True)
     ngrok.set_auth_token(NGROK_AUTHTOKEN)
+    for t in ngrok.get_tunnels():
+        ngrok.disconnect(t.public_url)
+
     tunnel = ngrok.connect(8000, bind_tls=True)
-    public_url = tunnel.public_url
-    print("\n" + "=" * 60)
-    print("VTO PUBLIC URL (paste into Vercel env):")
-    print(public_url)
-    print("Health check:", f"{public_url}/health")
-    print("=" * 60)
-    print("Keep this notebook running while testing try-on!\n")
+    publish_url(tunnel.public_url)
 
-    os.chdir(vto_dir)
-    sys.path.insert(0, vto_dir)
-    import uvicorn
-
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, log_level="info")
+    while True:
+        time.sleep(60)
 
 
 if __name__ == "__main__":
