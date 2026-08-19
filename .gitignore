@@ -37,3 +37,4 @@ apps/web/prisma/*.db
 
 # Test outputs
 outputs/
+vendor/fashn-vton-1.5/

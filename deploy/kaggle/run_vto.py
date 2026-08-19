@@ -33,6 +33,21 @@ def main() -> None:
     vto_dir = f"{work}/services/vto"
     vendor_dir = f"{work}/vendor/fashn-vton-1.5"
 
+    if not os.path.isdir(vendor_dir) or not os.listdir(vendor_dir):
+        os.makedirs(f"{work}/vendor", exist_ok=True)
+        run(
+            "git clone --depth 1 https://github.com/fashn-ai/fashn-vton-1.5.git "
+            f"{vendor_dir}"
+        )
+        # Apple Silicon patch not needed on CUDA, but harmless if present
+        mmdit = f"{vendor_dir}/src/fashn_vton/tryon_mmdit.py"
+        if os.path.exists(mmdit):
+            with open(mmdit) as f:
+                src = f.read()
+            if "float64" in src:
+                with open(mmdit, "w") as f:
+                    f.write(src.replace("float64", "float32"))
+
     run("pip install -q pyngrok uvicorn[standard] python-multipart mediapipe==0.10.21 rembg")
     run(f"pip install -q -e {vendor_dir}")
 
