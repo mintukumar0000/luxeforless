@@ -131,7 +131,7 @@ export function InstantSwapControls({
           })}
         </div>
         <p className="text-[11px] text-stone-400">
-          Green = AI cached · Blue = garment in catalog · Tap Run AI for photo-realistic color
+          Quick tint only — use <strong className="font-medium">Run AI</strong> for photo-realistic color & fit.
         </p>
       </div>
     </div>
@@ -188,12 +188,10 @@ export function useInstantSwapPreview({
   );
 
   const cachedUrl = tryOnCache[tryOnCacheKey(productId, selectedColorId)];
-  const sourceUrl =
-    cachedUrl ?? (selectedColorId === initialColorId ? resultUrl : resultUrl);
+  const sourceUrl = cachedUrl ?? resultUrl;
   const isDefault =
     selectedSize === fitResult.recommendedSize &&
-    selectedColorId === initialColorId &&
-    !cachedUrl;
+    (selectedColorId === initialColorId || Boolean(cachedUrl));
 
   useEffect(() => {
     if (isDefault) {
@@ -239,7 +237,7 @@ export function useInstantSwapPreview({
     isDefault,
   ]);
 
-  const displayUrl = isDefault ? resultUrl : previewUrl ?? sourceUrl;
+  const displayUrl = isDefault ? cachedUrl ?? resultUrl : previewUrl ?? sourceUrl;
   const needsPreview = !isDefault;
 
   const selectedRec = fitResult.sizeRecommendations.find((r) => r.size === selectedSize);
@@ -339,7 +337,7 @@ export function AnimatedTryOnImage({
       )}
       {isApproximateColor && !processing && (
         <span className="absolute bottom-2 left-2 right-2 text-center text-[10px] bg-black/50 text-white rounded-md py-1 px-2 z-20">
-          Instant preview · {category === "bottoms" ? "bottoms" : "top"} cloth only
+          Quick color preview · tap Run AI for realistic fit
         </span>
       )}
     </div>

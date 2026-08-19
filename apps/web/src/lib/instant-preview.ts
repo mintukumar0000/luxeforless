@@ -23,20 +23,20 @@ export function colorOptionById(id: string): ColorOption {
 /** Garment fit scale relative to AI recommended size. Free Size = loose oversized. */
 export function sizeToPreviewScale(size: string): number {
   const map: Record<string, number> = {
-    XS: 0.88,
-    S: 0.94,
+    XS: 0.92,
+    S: 0.96,
     M: 1,
-    L: 1.06,
-    XL: 1.12,
-    XXL: 1.18,
-    "Free Size": 1.24,
-    "28": 0.89,
-    "30": 0.94,
+    L: 1.04,
+    XL: 1.08,
+    XXL: 1.12,
+    "Free Size": 1.16,
+    "28": 0.92,
+    "30": 0.96,
     "32": 1,
-    "34": 1.06,
-    "36": 1.12,
-    "38": 1.17,
-    "40": 1.22,
+    "34": 1.04,
+    "36": 1.08,
+    "38": 1.12,
+    "40": 1.16,
   };
   return map[size] ?? 1;
 }
