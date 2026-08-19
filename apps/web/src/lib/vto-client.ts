@@ -26,6 +26,7 @@ export async function submitTryOnJob(params: {
   garmentDataUrl: string;
   category: keyof typeof VTO_CATEGORY_MAP | string;
   garmentPhotoType: "model" | "flat-lay";
+  preserveBackground?: boolean;
 }): Promise<{ job_id: string; status: string }> {
   const vtoBase = getVtoBaseUrl();
   const person = params.personImageBase64.includes(",")
@@ -43,6 +44,7 @@ export async function submitTryOnJob(params: {
       garment_image: garment,
       category: VTO_CATEGORY_MAP[params.category] || params.category,
       garment_photo_type: params.garmentPhotoType,
+      preserve_background: params.preserveBackground ?? true,
     }),
   });
 
@@ -131,6 +133,7 @@ export async function preprocessPersonCapture(imageBlob: Blob): Promise<{
   const vtoBase = getVtoBaseUrl();
   const form = new FormData();
   form.append("image", imageBlob, "capture.jpg");
+  form.append("keep_background", "true");
   const res = await fetch(`${vtoBase}/v1/preprocess-person`, {
     method: "POST",
     headers: vtoHeaders(),

@@ -198,9 +198,10 @@ def main() -> None:
         print("FAST MODE: 8 steps @ 512px (~60-120s/try-on, lower quality)", flush=True)
     else:
         os.environ.setdefault("VTO_NUM_TIMESTEPS", "24")
-        os.environ.setdefault("VTO_MAX_IMAGE_SIZE", "1080")
-        print("QUALITY MODE: 24 steps @ 1080px (~5-10 min/try-on)", flush=True)
-    os.environ["VTO_PREPROCESS_PERSON"] = "true"
+        os.environ.setdefault("VTO_MAX_IMAGE_SIZE", "1280")
+        print("QUALITY MODE: 24 steps @ up to 1280px, original background kept (~5-10 min/try-on)", flush=True)
+    os.environ["VTO_PREPROCESS_PERSON"] = "false"
+    os.environ["VTO_KEEP_ORIGINAL_BACKGROUND"] = "true"
     os.environ["VTO_ENHANCE_RESULT"] = "true"
     os.environ["VTO_DEVICE"] = "cuda"
     # Human parser on CPU avoids T4 VRAM hang at ~78% layer load

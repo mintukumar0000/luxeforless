@@ -36,6 +36,7 @@ export async function runSingleTryOn({
     garmentDataUrl,
     category: vtoCategoryForProduct(product.category),
     garmentPhotoType: isDemoModelShot ? "model" : "flat-lay",
+    preserveBackground: true,
   });
 
   const vtoResult = await pollTryOnJob(submit.job_id, { onProgress });

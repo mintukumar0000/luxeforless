@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback, useEffect, ChangeEvent } from "react";
 import { Camera, RefreshCw, CheckCircle, AlertCircle, Monitor, Smartphone, ImageUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { validateBodyCapture, preprocessPersonCapture } from "@/lib/vto-client";
+import { validateBodyCapture } from "@/lib/vto-client";
 import { BodyEstimates } from "@/lib/fit-scoring";
 import { SizeProfileSelector } from "@/components/SizeProfileSelector";
 import { DEFAULT_SIZE_PROFILE, SizeProfile } from "@/lib/size-options";
@@ -169,27 +169,16 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     if (!rawCapture) return;
 
     setPhase("processing");
-    setProcessingLabel("Removing background and creating studio portrait...");
+    setProcessingLabel("Checking pose — your background stays exactly as captured...");
+    setStudioCapture(rawCapture);
 
     const blob = await fetch(rawCapture).then((r) => r.blob());
 
-    const preprocessPromise = preprocessPersonCapture(blob)
-      .then(({ imageDataUrl }) => {
-        setStudioCapture(imageDataUrl);
-      })
-      .catch(() => {
-        setStudioCapture(rawCapture);
-      });
-
-    setProcessingLabel("Checking pose and lighting...");
     try {
-      const [validationRes] = await Promise.all([
-        validateBodyCapture(blob).then(
-          (result) => ({ ok: true as const, result }),
-          (err) => ({ ok: false as const, error: err instanceof Error ? err.message : "Validation failed" })
-        ),
-        preprocessPromise,
-      ]);
+      const validationRes = await validateBodyCapture(blob).then(
+        (result) => ({ ok: true as const, result }),
+        (err) => ({ ok: false as const, error: err instanceof Error ? err.message : "Validation failed" })
+      );
 
       if (!validationRes.ok) {
         setValidation({
@@ -208,12 +197,11 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
         issues: ["Could not validate pose. Retake your photo when the VTO service is online."],
         estimates: null,
       });
-      if (!studioCapture) setStudioCapture(rawCapture);
     } finally {
       setPhase("review");
       setProcessingLabel("");
     }
-  }, [rawCapture, studioCapture]);
+  }, [rawCapture]);
 
   const confirmCapture = () => {
     if (!validation?.valid) return;
@@ -329,7 +317,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
           </div>
         ) : displayImage ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={displayImage} alt="Captured" className="w-full h-full object-cover" />
+          <img src={displayImage} alt="Captured" className="w-full h-full object-contain bg-stone-950" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-white/70 text-sm px-6 text-center">
             {processingLabel || "Processing..."}
@@ -368,7 +356,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
         >
           <div className="flex items-center gap-2 font-medium mb-2">
             {validation.valid ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-            {validation.valid ? "Studio portrait ready!" : "Fix these issues and retake:"}
+            {validation.valid ? "Photo ready — background & pose kept" : "Fix these issues and retake:"}
           </div>
           <p className="text-stone-600 mb-2">
             Mode: <strong>{tryOnFocus === "upper" ? "Tops" : tryOnFocus === "lower" ? "Bottoms" : "Full outfit"}</strong>

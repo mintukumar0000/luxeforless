@@ -368,7 +368,7 @@ export default function MirrorPage() {
               <Camera className="mx-auto text-stone-400 mb-2" size={32} />
               <h2 className="text-2xl font-serif">Your photo</h2>
               <p className="text-stone-500 text-sm mt-1">
-                In-store mirror, phone camera, or upload — same AI try-on after this step
+                Your photo is kept as-is — background, pose & lighting preserved for try-on
               </p>
             </div>
             <WebcamCapture onCapture={handleCapture} onCancel={() => setStep("consent")} />

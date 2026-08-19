@@ -22,11 +22,12 @@ from .jobs import complete_job, create_job, fail_job, get_job, update_job
 WEIGHTS_DIR = os.environ.get("WEIGHTS_DIR", "./weights")
 RESULTS_DIR = os.environ.get("RESULTS_DIR", "./results")
 MOCK_VTO = os.environ.get("MOCK_VTO", "false").lower() == "true"
-VTO_PREPROCESS_PERSON = os.environ.get("VTO_PREPROCESS_PERSON", "true").lower() == "true"
+VTO_PREPROCESS_PERSON = os.environ.get("VTO_PREPROCESS_PERSON", "false").lower() == "true"
+VTO_KEEP_ORIGINAL_BACKGROUND = os.environ.get("VTO_KEEP_ORIGINAL_BACKGROUND", "true").lower() == "true"
 VTO_ENHANCE_RESULT = os.environ.get("VTO_ENHANCE_RESULT", "true").lower() == "true"
-# 20 steps = balanced quality on GPU; 4 = fast/low quality (8GB Mac)
+# 24 steps @ up to 1280px — preserve input scene (no studio rembg)
 VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "24"))
-VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "1080"))
+VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "1280"))
 
 # NOTE: Do NOT set PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 — it causes
 # "invalid low watermark ratio 1.4" on Apple Silicon. Set in shell before
@@ -118,6 +119,10 @@ class TryOnRequest(BaseModel):
     garment_image: str = Field(..., description="Base64-encoded garment image")
     category: Literal["tops", "bottoms", "one-pieces"]
     garment_photo_type: Literal["model", "flat-lay"] = "flat-lay"
+    preserve_background: bool = Field(
+        True,
+        description="Keep original photo background/pose — only swap garment region",
+    )
 
 
 class TryOnResponse(BaseModel):
@@ -163,13 +168,26 @@ def _decode_image(data: str, *, for_person: bool = False) -> Image.Image:
         data = data.split(",", 1)[1]
     raw = base64.b64decode(data)
     img = Image.open(io.BytesIO(raw)).convert("RGB")
-    limit = min(int(VTO_MAX_IMAGE_SIZE * 1.25), 1280) if for_person else VTO_MAX_IMAGE_SIZE
-    img.thumbnail((limit, limit), Image.LANCZOS)
+    if for_person and VTO_KEEP_ORIGINAL_BACKGROUND:
+        limit = VTO_MAX_IMAGE_SIZE
+    else:
+        limit = min(int(VTO_MAX_IMAGE_SIZE * 1.25), 1280) if for_person else VTO_MAX_IMAGE_SIZE
+    if max(img.size) > limit:
+        img = img.copy()
+        img.thumbnail((limit, limit), Image.LANCZOS)
     return img
 
 
-def _should_preprocess_person(img: Image.Image) -> bool:
-    if not VTO_PREPROCESS_PERSON:
+def _resize_if_needed(img: Image.Image, max_size: int) -> Image.Image:
+    if max(img.size) <= max_size:
+        return img
+    out = img.copy()
+    out.thumbnail((max_size, max_size), Image.LANCZOS)
+    return out
+
+
+def _should_preprocess_person(img: Image.Image, preserve_background: bool) -> bool:
+    if preserve_background or VTO_KEEP_ORIGINAL_BACKGROUND or not VTO_PREPROCESS_PERSON:
         return False
     from .person_preprocessing import is_studio_ready
 
@@ -213,6 +231,7 @@ async def health():
         "num_timesteps": VTO_NUM_TIMESTEPS,
         "max_image_size": VTO_MAX_IMAGE_SIZE,
         "preprocess_person": VTO_PREPROCESS_PERSON,
+        "keep_original_background": VTO_KEEP_ORIGINAL_BACKGROUND,
         "enhance_result": VTO_ENHANCE_RESULT,
     }
 
@@ -223,6 +242,7 @@ def _execute_tryon_job(
     garment,
     category: str,
     garment_photo_type: str,
+    preserve_background: bool,
 ) -> None:
     start = time.time()
     try:
@@ -235,11 +255,14 @@ def _execute_tryon_job(
 
         print(f"Try-on job {job_id}: preprocessing", flush=True)
         update_job(job_id, progress="preprocessing")
-        if _should_preprocess_person(person):
+        if _should_preprocess_person(person, preserve_background):
             from .person_preprocessing import preprocess_person_for_vto
 
             person = preprocess_person_for_vto(person, max_size=VTO_MAX_IMAGE_SIZE)
-        person.thumbnail((VTO_MAX_IMAGE_SIZE, VTO_MAX_IMAGE_SIZE), Image.LANCZOS)
+        else:
+            person = _resize_if_needed(person, VTO_MAX_IMAGE_SIZE)
+            print(f"Try-on job {job_id}: keeping original scene ({person.size[0]}x{person.size[1]})", flush=True)
+        garment = _resize_if_needed(garment, VTO_MAX_IMAGE_SIZE)
 
         print(f"Try-on job {job_id}: loading_model", flush=True)
         update_job(job_id, progress="loading_model")
@@ -254,8 +277,8 @@ def _execute_tryon_job(
         if VTO_ENHANCE_RESULT:
             from .result_enhancement import enhance_tryon_result
 
-            out_img = enhance_tryon_result(out_img)
-        out_img.save(filepath, format="PNG", optimize=True)
+            out_img = enhance_tryon_result(out_img, preserve_scene=preserve_background or VTO_KEEP_ORIGINAL_BACKGROUND)
+        out_img.save(filepath, format="PNG", compress_level=1)
         complete_job(job_id, f"/v1/results/{filename}", int((time.time() - start) * 1000))
     except Exception as e:
         import traceback
@@ -283,6 +306,7 @@ async def tryon(req: TryOnRequest):
             garment,
             req.category,
             req.garment_photo_type,
+            req.preserve_background,
         )
 
         return TryOnResponse(
@@ -335,11 +359,22 @@ async def validate_body(image: UploadFile = File(...)):
 
 
 @app.post("/v1/preprocess-person", response_model=PersonPreprocessResponse)
-async def preprocess_person(image: UploadFile = File(...)):
-    from .person_preprocessing import preprocess_person_for_vto
-
+async def preprocess_person(
+    image: UploadFile = File(...),
+    keep_background: bool = Form(True),
+):
     contents = await image.read()
     img = Image.open(io.BytesIO(contents)).convert("RGB")
+    if keep_background or VTO_KEEP_ORIGINAL_BACKGROUND:
+        img = _resize_if_needed(img, VTO_MAX_IMAGE_SIZE)
+        return PersonPreprocessResponse(
+            image=_encode_image_b64(img),
+            background_removed=False,
+            studio_background="original",
+        )
+
+    from .person_preprocessing import preprocess_person_for_vto
+
     studio = preprocess_person_for_vto(img, max_size=VTO_MAX_IMAGE_SIZE)
     return PersonPreprocessResponse(
         image=_encode_image_b64(studio),
