@@ -4,6 +4,10 @@ export function getVtoBaseUrl(): string {
   return process.env.NEXT_PUBLIC_VTO_SERVICE_URL || "http://localhost:8000";
 }
 
+function vtoHeaders(extra?: Record<string, string>): Record<string, string> {
+  return { "ngrok-skip-browser-warning": "true", ...extra };
+}
+
 export async function urlToDataUrl(url: string): Promise<string> {
   const absolute = url.startsWith("http") ? url : `${window.location.origin}${url}`;
   const res = await fetch(absolute);
@@ -33,7 +37,7 @@ export async function submitTryOnJob(params: {
 
   const res = await fetch(`${vtoBase}/v1/tryon`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: vtoHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       person_image: person,
       garment_image: garment,
@@ -71,7 +75,7 @@ export async function pollTryOnJob(
   while (Date.now() - start < maxWaitMs) {
     await new Promise((r) => setTimeout(r, intervalMs));
     try {
-      const res = await fetch(`${vtoBase}/v1/jobs/${jobId}`);
+      const res = await fetch(`${vtoBase}/v1/jobs/${jobId}`, { headers: vtoHeaders() });
       if (!res.ok) {
         lastError = `Status check failed (${res.status})`;
         continue;
@@ -113,7 +117,11 @@ export async function validateBodyCapture(imageBlob: Blob): Promise<{
   const vtoBase = getVtoBaseUrl();
   const form = new FormData();
   form.append("image", imageBlob, "capture.jpg");
-  const res = await fetch(`${vtoBase}/v1/validate-body`, { method: "POST", body: form });
+  const res = await fetch(`${vtoBase}/v1/validate-body`, {
+    method: "POST",
+    headers: vtoHeaders(),
+    body: form,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || err.error || `Validation failed (${res.status})`);
@@ -134,7 +142,11 @@ export async function processGarmentImage(
   const form = new FormData();
   form.append("image", file);
   if (category) form.append("category", category);
-  const res = await fetch(`${vtoBase}/v1/process-garment`, { method: "POST", body: form });
+  const res = await fetch(`${vtoBase}/v1/process-garment`, {
+    method: "POST",
+    headers: vtoHeaders(),
+    body: form,
+  });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Garment processing failed (${res.status}): ${err}`);

@@ -80,7 +80,7 @@ def main() -> None:
                 with open(mmdit, "w") as f:
                     f.write(src.replace("float64", "float32"))
 
-    run("pip install -q pyngrok uvicorn[standard] python-multipart mediapipe==0.10.21 rembg")
+    run("pip install -q 'protobuf>=5.28.0,<6' pyngrok uvicorn[standard] python-multipart mediapipe==0.10.21 rembg")
     run(f"pip install -q -e {vendor_dir}")
 
     weights_dir = f"{vto_dir}/weights"

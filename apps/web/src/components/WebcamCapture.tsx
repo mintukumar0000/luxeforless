@@ -91,7 +91,15 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
       setValidation(res.result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Validation service unavailable";
-      setValidation({ valid: false, issues: [msg], estimates: null });
+      const isServiceError =
+        msg.includes("fetch") || msg.includes("500") || msg.includes("Validation failed");
+      setValidation({
+        valid: isServiceError,
+        issues: isServiceError
+          ? ["Pose check unavailable — you can continue, but size recommendations may be less accurate."]
+          : [msg],
+        estimates: null,
+      });
     } finally {
       setValidating(false);
     }
@@ -194,10 +202,10 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
             </button>
             <button
               onClick={confirmCapture}
-              disabled={!validation?.valid}
+              disabled={!captured}
               className="px-6 py-2.5 rounded-xl bg-stone-900 text-white disabled:opacity-40"
             >
-              Use This Photo
+              {validation?.valid ? "Use This Photo" : "Use Anyway"}
             </button>
           </>
         )}
