@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 
 export async function PATCH(req: NextRequest) {
   const body = await req.json();
-  const { sessionId, captureImageUrl, estimates } = body;
+  const { sessionId, captureImageUrl, estimates, sizeProfile } = body;
 
   if (!sessionId) {
     return NextResponse.json({ error: "Session ID required" }, { status: 400 });
@@ -17,14 +17,17 @@ export async function PATCH(req: NextRequest) {
     data: updates,
   });
 
-  if (estimates) {
+  if (estimates || sizeProfile) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
     await prisma.bodyEstimate.create({
       data: {
         sessionId,
-        estimates,
+        estimates: {
+          ...(estimates || {}),
+          ...(sizeProfile ? { size_profile: sizeProfile } : {}),
+        },
         expiresAt,
       },
     });

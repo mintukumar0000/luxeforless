@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
 import { BodyEstimates } from "@/lib/fit-scoring";
+import { SizeProfile } from "@/lib/size-options";
 
 interface DemoContext {
   organizationId: string;
@@ -14,10 +15,12 @@ interface SessionContextType {
   demo: DemoContext | null;
   captureImage: string | null;
   bodyEstimates: BodyEstimates | null;
+  sizeProfile: SizeProfile | null;
   setSessionId: (id: string) => void;
   setDemo: (demo: DemoContext) => void;
   setCaptureImage: (img: string) => void;
   setBodyEstimates: (est: BodyEstimates) => void;
+  setSizeProfile: (profile: SizeProfile) => void;
   initDemo: () => Promise<void>;
   startSession: () => Promise<string>;
 }
@@ -29,6 +32,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [demo, setDemo] = useState<DemoContext | null>(null);
   const [captureImage, setCaptureImage] = useState<string | null>(null);
   const [bodyEstimates, setBodyEstimates] = useState<BodyEstimates | null>(null);
+  const [sizeProfile, setSizeProfile] = useState<SizeProfile | null>(null);
 
   const initDemo = useCallback(async () => {
     const res = await fetch("/api/demo/init", { method: "POST" });
@@ -73,10 +77,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         demo,
         captureImage,
         bodyEstimates,
+        sizeProfile,
         setSessionId,
         setDemo,
         setCaptureImage,
         setBodyEstimates,
+        setSizeProfile,
         initDemo,
         startSession,
       }}

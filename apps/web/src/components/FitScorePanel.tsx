@@ -8,9 +8,10 @@ interface FitScorePanelProps {
   fitResult: FitResult;
   productName: string;
   price: number;
+  userDeclaredSize?: string | null;
 }
 
-export function FitScorePanel({ fitResult, productName, price }: FitScorePanelProps) {
+export function FitScorePanel({ fitResult, productName, price, userDeclaredSize }: FitScorePanelProps) {
   return (
     <div className="bg-white rounded-2xl border border-stone-200 p-5 space-y-4">
       <div>
@@ -42,6 +43,11 @@ export function FitScorePanel({ fitResult, productName, price }: FitScorePanelPr
           <p className="text-xl font-serif">
             Recommended: <span className="font-semibold">{fitResult.recommendedSize}</span>
           </p>
+          {userDeclaredSize && (
+            <p className="text-xs text-stone-500 mt-1">
+              Your stated size: <span className="font-medium text-stone-700">{userDeclaredSize}</span>
+            </p>
+          )}
         </div>
       </div>
 

@@ -10,6 +10,7 @@ import { TryOnResultView } from "@/components/TryOnResultView";
 import { OutfitBuilder } from "@/components/OutfitBuilder";
 import { FitResult } from "@/lib/fit-scoring";
 import { BodyEstimates } from "@/lib/fit-scoring";
+import { declaredSizeForCategory, SizeProfile } from "@/lib/size-options";
 import { APP_NAME } from "@/lib/utils";
 import {
   pollTryOnJob,
@@ -42,10 +43,11 @@ interface TryOnState {
   fitResult: FitResult;
   processingTimeMs: number;
   product: Product;
+  userDeclaredSize: string | null;
 }
 
 export default function MirrorPage() {
-  const { sessionId, demo, captureImage, startSession, setCaptureImage, setBodyEstimates } =
+  const { sessionId, demo, captureImage, sizeProfile, startSession, setCaptureImage, setBodyEstimates, setSizeProfile } =
     useSession();
   const [step, setStep] = useState<Step>("welcome");
   const [storeId, setStoreId] = useState<string | null>(null);
@@ -65,21 +67,22 @@ export default function MirrorPage() {
   };
 
   const handleCapture = useCallback(
-    async (image: string, estimates: BodyEstimates | null) => {
+    async (image: string, estimates: BodyEstimates | null, profile: SizeProfile) => {
       setCaptureImage(image);
+      setSizeProfile(profile);
       if (estimates) setBodyEstimates(estimates);
 
       if (sessionId) {
         await fetch("/api/sessions/update", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, estimates }),
+          body: JSON.stringify({ sessionId, estimates, sizeProfile: profile }),
         });
       }
 
       setStep("browse");
     },
-    [sessionId, setCaptureImage, setBodyEstimates]
+    [sessionId, setCaptureImage, setBodyEstimates, setSizeProfile]
   );
 
   const handleTryOn = async (product: Product) => {
@@ -134,6 +137,7 @@ export default function MirrorPage() {
         fitResult: data.fitResult,
         processingTimeMs: data.processingTimeMs,
         product,
+        userDeclaredSize: data.userDeclaredSize ?? null,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
@@ -234,6 +238,11 @@ export default function MirrorPage() {
                 <p className="text-stone-500 text-sm">
                   Tap a garment to try it on · Build an outfit with tops + bottoms
                 </p>
+                {sizeProfile && (
+                  <p className="text-xs text-stone-400 mt-1">
+                    Your sizes: {sizeProfile.upper} top · {sizeProfile.lower} waist
+                  </p>
+                )}
               </div>
               {captureImage && (
                 <div className="w-12 h-16 rounded-lg overflow-hidden border-2 border-stone-300">
@@ -287,6 +296,7 @@ export default function MirrorPage() {
           productName={tryOnState.productName}
           price={tryOnState.price}
           fitResult={tryOnState.fitResult}
+          userDeclaredSize={tryOnState.userDeclaredSize}
           processingTimeMs={tryOnState.processingTimeMs}
           onClose={() => setTryOnState(null)}
           onAddToOutfit={() => {

@@ -10,6 +10,7 @@ interface TryOnResultProps {
   productName: string;
   price: number;
   fitResult: FitResult;
+  userDeclaredSize?: string | null;
   processingTimeMs: number;
   onClose: () => void;
   onAddToOutfit: () => void;
@@ -20,12 +21,16 @@ export function TryOnResultView({
   productName,
   price,
   fitResult,
+  userDeclaredSize,
   processingTimeMs,
   onClose,
   onAddToOutfit,
 }: TryOnResultProps) {
-  const vtoBase = process.env.NEXT_PUBLIC_VTO_SERVICE_URL || "http://localhost:8000";
-  const fullUrl = resultUrl.startsWith("http") ? resultUrl : `${vtoBase}${resultUrl}`;
+  const fullUrl = resultUrl.startsWith("http")
+    ? resultUrl
+    : resultUrl.startsWith("/")
+      ? resultUrl
+      : `${process.env.NEXT_PUBLIC_VTO_SERVICE_URL || "http://localhost:8000"}${resultUrl}`;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
@@ -52,7 +57,12 @@ export function TryOnResultView({
           </div>
 
           <div className="space-y-4">
-            <FitScorePanel fitResult={fitResult} productName={productName} price={price} />
+            <FitScorePanel
+              fitResult={fitResult}
+              productName={productName}
+              price={price}
+              userDeclaredSize={userDeclaredSize}
+            />
 
             <button
               onClick={onAddToOutfit}

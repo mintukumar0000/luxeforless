@@ -33,12 +33,22 @@ export async function POST(req: NextRequest) {
     include: { bodyEstimates: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
 
-  const estimates = (session?.bodyEstimates[0]?.estimates as BodyEstimates) || {};
+  const estimatesRaw = (session?.bodyEstimates[0]?.estimates as BodyEstimates & {
+    size_profile?: { upper?: string; lower?: string };
+  }) || {};
+  const { size_profile: sizeProfile, ...estimates } = estimatesRaw;
+
+  const declaredSize =
+    product.category === "bottoms"
+      ? sizeProfile?.lower
+      : sizeProfile?.upper;
+
   const fitResult = computeFitScore(
     estimates,
     product.sizeChart,
     product.variants.map((v) => ({ size: v.size, stockQty: v.stockQty })),
-    product.category
+    product.category,
+    declaredSize
   );
 
   const variant =
@@ -69,6 +79,7 @@ export async function POST(req: NextRequest) {
     tryon,
     resultUrl,
     fitResult,
+    userDeclaredSize: declaredSize ?? null,
     product,
     processingTimeMs: processingTimeMs ?? 0,
     aiDisclaimer: "AI-generated preview — results may vary with pose, lighting, and garment type.",

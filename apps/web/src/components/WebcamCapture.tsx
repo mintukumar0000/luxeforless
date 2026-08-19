@@ -5,9 +5,13 @@ import { Camera, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { validateBodyCapture, preprocessPersonCapture } from "@/lib/vto-client";
 import { BodyEstimates } from "@/lib/fit-scoring";
+import { SizeProfileSelector } from "@/components/SizeProfileSelector";
+import { DEFAULT_SIZE_PROFILE, SizeProfile } from "@/lib/size-options";
+
+type CapturePhase = "camera" | "sizes" | "processing" | "review";
 
 interface WebcamCaptureProps {
-  onCapture: (imageBase64: string, estimates: BodyEstimates | null) => void;
+  onCapture: (imageBase64: string, estimates: BodyEstimates | null, sizeProfile: SizeProfile) => void;
   onCancel?: () => void;
 }
 
@@ -21,11 +25,13 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [phase, setPhase] = useState<CapturePhase>("camera");
   const [ready, setReady] = useState(false);
-  const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<ValidationState | null>(null);
-  const [captured, setCaptured] = useState<string | null>(null);
-  const [studioProcessing, setStudioProcessing] = useState(false);
+  const [rawCapture, setRawCapture] = useState<string | null>(null);
+  const [studioCapture, setStudioCapture] = useState<string | null>(null);
+  const [sizeProfile, setSizeProfile] = useState<SizeProfile>(DEFAULT_SIZE_PROFILE);
+  const [processingLabel, setProcessingLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const startCamera = useCallback(async () => {
@@ -53,7 +59,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     };
   }, [startCamera]);
 
-  const captureFrame = useCallback(async () => {
+  const captureFrame = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
@@ -67,41 +73,47 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    // Mirror horizontally to match preview
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    setCaptured(dataUrl);
-    setValidating(true);
-    setStudioProcessing(true);
+    setRawCapture(dataUrl);
+    setStudioCapture(null);
     setValidation(null);
     setError(null);
+    setPhase("sizes");
+  }, []);
 
-    const blob = await fetch(dataUrl).then((r) => r.blob());
+  const runStudioPipeline = useCallback(async () => {
+    if (!rawCapture) return;
+
+    setPhase("processing");
+    setProcessingLabel("Removing background and creating studio portrait...");
+
+    const blob = await fetch(rawCapture).then((r) => r.blob());
 
     const preprocessPromise = preprocessPersonCapture(blob)
       .then(({ imageDataUrl }) => {
-        setCaptured(imageDataUrl);
+        setStudioCapture(imageDataUrl);
       })
       .catch(() => {
-        /* keep original capture if studio prep unavailable */
-      })
-      .finally(() => setStudioProcessing(false));
+        setStudioCapture(rawCapture);
+      });
 
+    setProcessingLabel("Checking pose and lighting...");
     try {
-      const res = await Promise.all([
+      const [validationRes] = await Promise.all([
         validateBodyCapture(blob).then(
           (result) => ({ ok: true as const, result }),
           (err) => ({ ok: false as const, error: err instanceof Error ? err.message : "Validation failed" })
         ),
         preprocessPromise,
-      ]).then(([validationRes]) => validationRes);
+      ]);
 
-      if (!res.ok) {
-        throw new Error(res.error);
+      if (!validationRes.ok) {
+        throw new Error(validationRes.error);
       }
-      setValidation(res.result);
+      setValidation(validationRes.result);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Validation service unavailable";
       const isServiceError =
@@ -113,26 +125,46 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
           : [msg],
         estimates: null,
       });
+      if (!studioCapture) setStudioCapture(rawCapture);
     } finally {
-      setValidating(false);
+      setPhase("review");
+      setProcessingLabel("");
     }
-  }, []);
+  }, [rawCapture, studioCapture]);
 
   const confirmCapture = () => {
-    if (captured) {
-      onCapture(captured, validation?.estimates || null);
+    const finalImage = studioCapture || rawCapture;
+    if (finalImage) {
+      onCapture(finalImage, validation?.estimates || null, sizeProfile);
     }
   };
 
   const retake = () => {
-    setCaptured(null);
+    setRawCapture(null);
+    setStudioCapture(null);
     setValidation(null);
+    setSizeProfile(DEFAULT_SIZE_PROFILE);
+    setPhase("camera");
   };
+
+  if (phase === "sizes" && rawCapture) {
+    return (
+      <SizeProfileSelector
+        previewImage={rawCapture}
+        value={sizeProfile}
+        onChange={setSizeProfile}
+        onContinue={runStudioPipeline}
+        onRetake={retake}
+      />
+    );
+  }
+
+  const displayImage = phase === "review" ? studioCapture || rawCapture : null;
 
   return (
     <div className="space-y-4">
       <div className="relative aspect-[3/4] max-h-[520px] mx-auto bg-stone-900 rounded-2xl overflow-hidden">
-        {!captured ? (
+        {phase === "camera" ? (
           <video
             ref={videoRef}
             className="w-full h-full object-cover mirror"
@@ -140,12 +172,16 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
             muted
             style={{ transform: "scaleX(-1)" }}
           />
-        ) : (
+        ) : displayImage ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={captured} alt="Captured" className="w-full h-full object-cover" />
+          <img src={displayImage} alt="Captured" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-white/70 text-sm px-6 text-center">
+            {processingLabel || "Processing..."}
+          </div>
         )}
 
-        {!captured && ready && (
+        {phase === "camera" && ready && (
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute inset-x-8 inset-y-12 border-2 border-dashed border-white/40 rounded-xl" />
             <p className="absolute bottom-4 left-0 right-0 text-center text-white/80 text-sm">
@@ -164,15 +200,11 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
         </div>
       )}
 
-      {validating && (
-        <div className="text-center text-stone-500 text-sm animate-pulse">
-          {studioProcessing
-            ? "Removing background and creating studio portrait..."
-            : "Checking pose and lighting..."}
-        </div>
+      {phase === "processing" && (
+        <div className="text-center text-stone-500 text-sm animate-pulse">{processingLabel}</div>
       )}
 
-      {validation && !validating && (
+      {phase === "review" && validation && (
         <div
           className={cn(
             "p-4 rounded-xl text-sm",
@@ -181,8 +213,11 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
         >
           <div className="flex items-center gap-2 font-medium mb-2">
             {validation.valid ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-            {validation.valid ? "Great shot! Ready to continue." : "Please adjust and retake:"}
+            {validation.valid ? "Studio portrait ready!" : "You can continue, or retake for better results:"}
           </div>
+          <p className="text-stone-600 mb-2">
+            Your sizes: <strong>{sizeProfile.upper}</strong> top · <strong>{sizeProfile.lower}</strong> bottom
+          </p>
           {validation.issues.length > 0 && (
             <ul className="list-disc pl-5 space-y-1">
               {validation.issues.map((issue, i) => (
@@ -194,13 +229,13 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
       )}
 
       <div className="flex gap-3 justify-center">
-        {onCancel && (
+        {onCancel && phase === "camera" && (
           <button onClick={onCancel} className="px-5 py-2.5 rounded-xl border border-stone-300 text-stone-600">
             Back
           </button>
         )}
 
-        {!captured ? (
+        {phase === "camera" && (
           <button
             onClick={captureFrame}
             disabled={!ready}
@@ -209,7 +244,9 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
             <Camera size={18} />
             Capture
           </button>
-        ) : (
+        )}
+
+        {phase === "review" && (
           <>
             <button onClick={retake} className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-stone-300">
               <RefreshCw size={16} />
@@ -217,10 +254,9 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
             </button>
             <button
               onClick={confirmCapture}
-              disabled={!captured}
-              className="px-6 py-2.5 rounded-xl bg-stone-900 text-white disabled:opacity-40"
+              className="px-6 py-2.5 rounded-xl bg-stone-900 text-white"
             >
-              {validation?.valid ? "Use This Photo" : "Use Anyway"}
+              {validation?.valid ? "Start browsing" : "Continue anyway"}
             </button>
           </>
         )}

@@ -47,9 +47,10 @@ export function computeFitScore(
   estimates: BodyEstimates,
   sizeChart: SizeChartEntry[],
   variants: { size: string; stockQty: number }[],
-  category: string
+  category: string,
+  declaredSize?: string
 ): FitResult {
-  const disclaimer = "Size recommendation is an estimate — not a guarantee of fit.";
+  const disclaimer = "Size recommendation combines your stated size with AI body scan — not a guarantee of fit.";
   if (!sizeChart.length) {
     return {
       recommendedSize: variants[0]?.size || "M",
@@ -78,9 +79,25 @@ export function computeFitScore(
     return { size: entry.size, matchPercent, inStock: (variant?.stockQty ?? 0) > 0, stockQty: variant?.stockQty ?? 0 };
   }).sort((a, b) => b.matchPercent - a.matchPercent);
 
+  if (declaredSize) {
+    const existing = sizeRecommendations.find((r) => r.size === declaredSize);
+    if (existing) {
+      existing.matchPercent = Math.min(100, existing.matchPercent + 25);
+    } else {
+      sizeRecommendations.unshift({
+        size: declaredSize,
+        matchPercent: 88,
+        inStock: true,
+        stockQty: variants.find((v) => v.size === declaredSize)?.stockQty ?? 10,
+      });
+    }
+    sizeRecommendations.sort((a, b) => b.matchPercent - a.matchPercent);
+  }
+
+  const top = sizeRecommendations[0];
   return {
-    recommendedSize: sizeRecommendations[0]?.size || "M",
-    fitScore: sizeRecommendations[0]?.matchPercent ?? 0,
+    recommendedSize: top?.size || declaredSize || "M",
+    fitScore: top?.matchPercent ?? 0,
     sizeRecommendations,
     disclaimer,
   };

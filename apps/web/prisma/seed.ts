@@ -56,7 +56,7 @@ async function main() {
     },
   ];
 
-  const sizes = ["XS", "S", "M", "L", "XL"];
+  const sizes = ["XS", "S", "M", "L", "XL", "XXL", "Free Size"];
   const sizeChart = {
     XS: { chestCm: 81, shoulderCm: 38, waistCm: 66, lengthCm: 64 },
     S: { chestCm: 86, shoulderCm: 40, waistCm: 71, lengthCm: 66 },
