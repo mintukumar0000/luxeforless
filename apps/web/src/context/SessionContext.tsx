@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
 import { BodyEstimates } from "@/lib/fit-scoring";
 import { SizeProfile } from "@/lib/size-options";
+import { TryOnFocus } from "@/lib/try-on-focus";
 
 interface DemoContext {
   organizationId: string;
@@ -16,11 +17,13 @@ interface SessionContextType {
   captureImage: string | null;
   bodyEstimates: BodyEstimates | null;
   sizeProfile: SizeProfile | null;
+  tryOnFocus: TryOnFocus;
   setSessionId: (id: string) => void;
   setDemo: (demo: DemoContext) => void;
   setCaptureImage: (img: string) => void;
   setBodyEstimates: (est: BodyEstimates) => void;
   setSizeProfile: (profile: SizeProfile) => void;
+  setTryOnFocus: (focus: TryOnFocus) => void;
   initDemo: () => Promise<void>;
   startSession: () => Promise<string>;
 }
@@ -33,6 +36,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [captureImage, setCaptureImage] = useState<string | null>(null);
   const [bodyEstimates, setBodyEstimates] = useState<BodyEstimates | null>(null);
   const [sizeProfile, setSizeProfile] = useState<SizeProfile | null>(null);
+  const [tryOnFocus, setTryOnFocus] = useState<TryOnFocus>("full");
 
   const initDemo = useCallback(async () => {
     const res = await fetch("/api/demo/init", { method: "POST" });
@@ -78,11 +82,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         captureImage,
         bodyEstimates,
         sizeProfile,
+        tryOnFocus,
         setSessionId,
         setDemo,
         setCaptureImage,
         setBodyEstimates,
         setSizeProfile,
+        setTryOnFocus,
         initDemo,
         startSession,
       }}

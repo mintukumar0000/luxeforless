@@ -1,17 +1,25 @@
 "use client";
 
 import { FitResult } from "@/lib/fit-scoring";
-import { formatPrice } from "@/lib/utils";
-import { AlertTriangle } from "lucide-react";
+import { SizeIntelligence } from "@/lib/fit-intelligence";
+import { formatPrice, cn } from "@/lib/utils";
+import { AlertTriangle, Sparkles } from "lucide-react";
 
 interface FitScorePanelProps {
   fitResult: FitResult;
   productName: string;
   price: number;
   userDeclaredSize?: string | null;
+  sizeIntelligence?: SizeIntelligence | null;
 }
 
-export function FitScorePanel({ fitResult, productName, price, userDeclaredSize }: FitScorePanelProps) {
+export function FitScorePanel({
+  fitResult,
+  productName,
+  price,
+  userDeclaredSize,
+  sizeIntelligence,
+}: FitScorePanelProps) {
   return (
     <div className="bg-white rounded-2xl border border-stone-200 p-5 space-y-4">
       <div>
@@ -50,6 +58,25 @@ export function FitScorePanel({ fitResult, productName, price, userDeclaredSize 
           )}
         </div>
       </div>
+
+      {sizeIntelligence && (
+        <div
+          className={cn(
+            "rounded-xl p-3 text-sm space-y-1",
+            sizeIntelligence.verdict === "ai_better"
+              ? "bg-blue-50 text-blue-900 border border-blue-100"
+              : sizeIntelligence.verdict === "match"
+                ? "bg-green-50 text-green-900 border border-green-100"
+                : "bg-stone-50 text-stone-800 border border-stone-100"
+          )}
+        >
+          <div className="flex items-center gap-2 font-medium">
+            <Sparkles size={14} className="shrink-0" />
+            {sizeIntelligence.headline}
+          </div>
+          <p className="text-xs opacity-90">{sizeIntelligence.detail}</p>
+        </div>
+      )}
 
       <div className="space-y-1">
         <p className="text-xs font-medium text-stone-500 uppercase tracking-wide">Size breakdown</p>

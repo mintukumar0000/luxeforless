@@ -11,6 +11,8 @@ import { OutfitBuilder } from "@/components/OutfitBuilder";
 import { FitResult } from "@/lib/fit-scoring";
 import { BodyEstimates } from "@/lib/fit-scoring";
 import { SizeProfile } from "@/lib/size-options";
+import { productMatchesFocus, vtoCategoryForProduct, TryOnFocus } from "@/lib/try-on-focus";
+import { SizeIntelligence } from "@/lib/fit-intelligence";
 import { APP_NAME } from "@/lib/utils";
 import {
   pollTryOnJob,
@@ -44,11 +46,22 @@ interface TryOnState {
   processingTimeMs: number;
   product: Product;
   userDeclaredSize: string | null;
+  sizeIntelligence: SizeIntelligence | null;
 }
 
 export default function MirrorPage() {
-  const { sessionId, demo, captureImage, sizeProfile, startSession, setCaptureImage, setBodyEstimates, setSizeProfile } =
-    useSession();
+  const {
+    sessionId,
+    demo,
+    captureImage,
+    sizeProfile,
+    tryOnFocus,
+    startSession,
+    setCaptureImage,
+    setBodyEstimates,
+    setSizeProfile,
+    setTryOnFocus,
+  } = useSession();
   const [step, setStep] = useState<Step>("welcome");
   const [storeId, setStoreId] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
@@ -67,26 +80,33 @@ export default function MirrorPage() {
   };
 
   const handleCapture = useCallback(
-    async (image: string, estimates: BodyEstimates | null, profile: SizeProfile) => {
+    async (image: string, estimates: BodyEstimates | null, profile: SizeProfile, focus: TryOnFocus) => {
       setCaptureImage(image);
       setSizeProfile(profile);
+      setTryOnFocus(focus);
       if (estimates) setBodyEstimates(estimates);
 
       if (sessionId) {
         await fetch("/api/sessions/update", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, estimates, sizeProfile: profile }),
+          body: JSON.stringify({ sessionId, estimates, sizeProfile: profile, tryOnFocus: focus }),
         });
       }
 
       setStep("browse");
     },
-    [sessionId, setCaptureImage, setBodyEstimates, setSizeProfile]
+    [sessionId, setCaptureImage, setBodyEstimates, setSizeProfile, setTryOnFocus]
   );
 
   const handleTryOn = async (product: Product) => {
     if (!captureImage || !sessionId) return;
+
+    if (!productMatchesFocus(product.category, tryOnFocus)) {
+      alert(`This item doesn't match your "${tryOnFocus}" mode. Switch mode by retaking your photo.`);
+      return;
+    }
+
     setLoadingProductId(product.id);
     setTryOnProgress("queued");
 
@@ -104,7 +124,7 @@ export default function MirrorPage() {
       const submit = await submitTryOnJob({
         personImageBase64: captureImage,
         garmentDataUrl,
-        category: product.category,
+        category: vtoCategoryForProduct(product.category),
         garmentPhotoType: isDemoModelShot ? "model" : "flat-lay",
       });
 
@@ -138,6 +158,7 @@ export default function MirrorPage() {
         processingTimeMs: data.processingTimeMs,
         product,
         userDeclaredSize: data.userDeclaredSize ?? null,
+        sizeIntelligence: data.sizeIntelligence ?? null,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
@@ -240,7 +261,11 @@ export default function MirrorPage() {
                 </p>
                 {sizeProfile && (
                   <p className="text-xs text-stone-400 mt-1">
-                    Your sizes: {sizeProfile.upper} top · {sizeProfile.lower} waist
+                    {tryOnFocus === "upper" && `Tops · size ${sizeProfile.upper}`}
+                    {tryOnFocus === "lower" && `Bottoms · waist ${sizeProfile.lower}`}
+                    {tryOnFocus === "full" && `Full outfit · ${sizeProfile.upper} top · ${sizeProfile.lower} waist`}
+                    {" · "}
+                    <span className="text-stone-500">Tap any item to try on</span>
                   </p>
                 )}
               </div>
@@ -260,6 +285,7 @@ export default function MirrorPage() {
 
             <ProductCatalog
               storeId={storeId}
+              tryOnFocus={tryOnFocus}
               selectedIds={selectedProducts.map((p) => p.id)}
               onSelect={handleSelectProduct}
               onTryOn={handleTryOn}
@@ -297,6 +323,7 @@ export default function MirrorPage() {
           price={tryOnState.price}
           fitResult={tryOnState.fitResult}
           userDeclaredSize={tryOnState.userDeclaredSize}
+          sizeIntelligence={tryOnState.sizeIntelligence}
           processingTimeMs={tryOnState.processingTimeMs}
           onClose={() => setTryOnState(null)}
           onAddToOutfit={() => {

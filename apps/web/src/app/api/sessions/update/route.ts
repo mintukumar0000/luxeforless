@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 
 export async function PATCH(req: NextRequest) {
   const body = await req.json();
-  const { sessionId, captureImageUrl, estimates, sizeProfile } = body;
+  const { sessionId, captureImageUrl, estimates, sizeProfile, tryOnFocus } = body;
 
   if (!sessionId) {
     return NextResponse.json({ error: "Session ID required" }, { status: 400 });
@@ -17,7 +17,7 @@ export async function PATCH(req: NextRequest) {
     data: updates,
   });
 
-  if (estimates || sizeProfile) {
+  if (estimates || sizeProfile || tryOnFocus) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
@@ -27,6 +27,7 @@ export async function PATCH(req: NextRequest) {
         estimates: {
           ...(estimates || {}),
           ...(sizeProfile ? { size_profile: sizeProfile } : {}),
+          ...(tryOnFocus ? { try_on_focus: tryOnFocus } : {}),
         },
         expiresAt,
       },

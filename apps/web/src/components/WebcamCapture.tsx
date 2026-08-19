@@ -7,11 +7,17 @@ import { validateBodyCapture, preprocessPersonCapture } from "@/lib/vto-client";
 import { BodyEstimates } from "@/lib/fit-scoring";
 import { SizeProfileSelector } from "@/components/SizeProfileSelector";
 import { DEFAULT_SIZE_PROFILE, SizeProfile } from "@/lib/size-options";
+import { TryOnFocus } from "@/lib/try-on-focus";
 
 type CapturePhase = "camera" | "sizes" | "processing" | "review";
 
 interface WebcamCaptureProps {
-  onCapture: (imageBase64: string, estimates: BodyEstimates | null, sizeProfile: SizeProfile) => void;
+  onCapture: (
+    imageBase64: string,
+    estimates: BodyEstimates | null,
+    sizeProfile: SizeProfile,
+    tryOnFocus: TryOnFocus
+  ) => void;
   onCancel?: () => void;
 }
 
@@ -31,6 +37,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
   const [rawCapture, setRawCapture] = useState<string | null>(null);
   const [studioCapture, setStudioCapture] = useState<string | null>(null);
   const [sizeProfile, setSizeProfile] = useState<SizeProfile>(DEFAULT_SIZE_PROFILE);
+  const [tryOnFocus, setTryOnFocus] = useState<TryOnFocus>("full");
   const [processingLabel, setProcessingLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -135,7 +142,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
   const confirmCapture = () => {
     const finalImage = studioCapture || rawCapture;
     if (finalImage) {
-      onCapture(finalImage, validation?.estimates || null, sizeProfile);
+      onCapture(finalImage, validation?.estimates || null, sizeProfile, tryOnFocus);
     }
   };
 
@@ -144,6 +151,7 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     setStudioCapture(null);
     setValidation(null);
     setSizeProfile(DEFAULT_SIZE_PROFILE);
+    setTryOnFocus("full");
     setPhase("camera");
   };
 
@@ -151,6 +159,8 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
     return (
       <SizeProfileSelector
         previewImage={rawCapture}
+        focus={tryOnFocus}
+        onFocusChange={setTryOnFocus}
         value={sizeProfile}
         onChange={setSizeProfile}
         onContinue={runStudioPipeline}
@@ -216,7 +226,11 @@ export function WebcamCapture({ onCapture, onCancel }: WebcamCaptureProps) {
             {validation.valid ? "Studio portrait ready!" : "You can continue, or retake for better results:"}
           </div>
           <p className="text-stone-600 mb-2">
-            Your sizes: <strong>{sizeProfile.upper}</strong> top · <strong>{sizeProfile.lower}</strong> bottom
+            Mode: <strong>{tryOnFocus === "upper" ? "Tops" : tryOnFocus === "lower" ? "Bottoms" : "Full outfit"}</strong>
+            {" · "}
+            {tryOnFocus !== "lower" && <>Top {sizeProfile.upper}</>}
+            {tryOnFocus === "full" && " · "}
+            {tryOnFocus !== "upper" && <>Waist {sizeProfile.lower}</>}
           </p>
           {validation.issues.length > 0 && (
             <ul className="list-disc pl-5 space-y-1">

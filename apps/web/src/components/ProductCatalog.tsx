@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn, formatPrice, CATEGORY_LABELS } from "@/lib/utils";
+import { categoriesForFocus, TryOnFocus } from "@/lib/try-on-focus";
 import { Loader2 } from "lucide-react";
 
 interface Product {
@@ -21,24 +22,37 @@ interface Product {
 
 interface ProductCatalogProps {
   storeId: string;
+  tryOnFocus: TryOnFocus;
   selectedIds: string[];
   onSelect: (product: Product) => void;
   onTryOn: (product: Product) => void;
   loadingProductId?: string | null;
 }
 
-const CATEGORIES = ["all", "tops", "bottoms", "one_pieces"];
+const ALL_CATEGORIES = ["all", "tops", "bottoms", "one_pieces"];
 
 export function ProductCatalog({
   storeId,
+  tryOnFocus,
   selectedIds,
   onSelect,
   onTryOn,
   loadingProductId,
 }: ProductCatalogProps) {
+  const allowed = useMemo(() => categoriesForFocus(tryOnFocus), [tryOnFocus]);
+  const visibleCategories = ALL_CATEGORIES.filter(
+    (cat) => cat === "all" || allowed.includes(cat)
+  );
+  const initialCategory =
+    tryOnFocus === "upper" ? "tops" : tryOnFocus === "lower" ? "bottoms" : "all";
+
   const [products, setProducts] = useState<Product[]>([]);
-  const [category, setCategory] = useState("all");
+  const [category, setCategory] = useState(initialCategory);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setCategory(initialCategory);
+  }, [initialCategory]);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -46,17 +60,17 @@ export function ProductCatalog({
       const params = new URLSearchParams({ storeId });
       if (category !== "all") params.set("category", category);
       const res = await fetch(`/api/products?${params}`);
-      const data = await res.json();
-      setProducts(data);
+      const data: Product[] = await res.json();
+      setProducts(data.filter((p) => allowed.includes(p.category)));
       setLoading(false);
     };
     fetchProducts();
-  }, [storeId, category]);
+  }, [storeId, category, allowed]);
 
   return (
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap">
-        {CATEGORIES.map((cat) => (
+        {visibleCategories.map((cat) => (
           <button
             key={cat}
             onClick={() => setCategory(cat)}
@@ -77,9 +91,7 @@ export function ProductCatalog({
           <Loader2 className="animate-spin text-stone-400" />
         </div>
       ) : products.length === 0 ? (
-        <p className="text-center text-stone-500 py-12">
-          No products yet. Add garments in the Upload Studio.
-        </p>
+        <p className="text-center text-stone-500 py-12">No products in this category.</p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {products.map((product) => {
@@ -93,28 +105,22 @@ export function ProductCatalog({
             return (
               <div
                 key={product.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => !isLoading && onTryOn(product)}
+                onKeyDown={(e) => e.key === "Enter" && !isLoading && onTryOn(product)}
                 className={cn(
-                  "group rounded-xl border overflow-hidden transition",
+                  "group rounded-xl border overflow-hidden transition cursor-pointer",
                   isSelected ? "border-stone-900 ring-2 ring-stone-900" : "border-stone-200 hover:border-stone-400"
                 )}
               >
                 <div className="aspect-[3/4] bg-stone-100 relative overflow-hidden">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={img} alt={product.name} className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition flex items-end justify-center pb-3 gap-2 opacity-0 group-hover:opacity-100">
-                    <button
-                      onClick={() => onTryOn(product)}
-                      disabled={isLoading}
-                      className="px-3 py-1.5 bg-white rounded-lg text-sm font-medium shadow disabled:opacity-50"
-                    >
-                      {isLoading ? "Trying on..." : "Try On"}
-                    </button>
-                    <button
-                      onClick={() => onSelect(product)}
-                      className="px-3 py-1.5 bg-stone-900 text-white rounded-lg text-sm font-medium shadow"
-                    >
-                      {isSelected ? "Selected ✓" : "Add to Outfit"}
-                    </button>
+                  <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/50 to-transparent">
+                    <span className="text-white text-xs font-medium">
+                      {isLoading ? "Generating…" : "Tap to try on"}
+                    </span>
                   </div>
                 </div>
                 <div className="p-3">
@@ -122,7 +128,16 @@ export function ProductCatalog({
                   <p className="font-medium text-sm truncate">{product.name}</p>
                   <div className="flex justify-between items-center mt-1">
                     <span className="text-sm">{formatPrice(Number(product.basePrice))}</span>
-                    <span className="text-xs text-stone-400 capitalize">{product.color}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect(product);
+                      }}
+                      className="text-xs text-stone-500 hover:text-stone-900 underline"
+                    >
+                      {isSelected ? "Added ✓" : "+ Outfit"}
+                    </button>
                   </div>
                 </div>
               </div>

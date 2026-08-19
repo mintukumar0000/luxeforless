@@ -3,6 +3,7 @@
 import { formatPrice } from "@/lib/utils";
 import { FitScorePanel } from "./FitScorePanel";
 import { FitResult } from "@/lib/fit-scoring";
+import { SizeIntelligence } from "@/lib/fit-intelligence";
 import { Sparkles, X } from "lucide-react";
 
 interface TryOnResultProps {
@@ -11,6 +12,7 @@ interface TryOnResultProps {
   price: number;
   fitResult: FitResult;
   userDeclaredSize?: string | null;
+  sizeIntelligence?: SizeIntelligence | null;
   processingTimeMs: number;
   onClose: () => void;
   onAddToOutfit: () => void;
@@ -22,6 +24,7 @@ export function TryOnResultView({
   price,
   fitResult,
   userDeclaredSize,
+  sizeIntelligence,
   processingTimeMs,
   onClose,
   onAddToOutfit,
@@ -62,6 +65,7 @@ export function TryOnResultView({
               productName={productName}
               price={price}
               userDeclaredSize={userDeclaredSize}
+              sizeIntelligence={sizeIntelligence}
             />
 
             <button

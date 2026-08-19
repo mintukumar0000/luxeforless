@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { computeFitScore, BodyEstimates } from "@/lib/fit-scoring";
+import { analyzeSizeFit } from "@/lib/fit-intelligence";
 
 export const maxDuration = 30;
 
@@ -35,8 +36,9 @@ export async function POST(req: NextRequest) {
 
   const estimatesRaw = (session?.bodyEstimates[0]?.estimates as BodyEstimates & {
     size_profile?: { upper?: string; lower?: string };
+    try_on_focus?: string;
   }) || {};
-  const { size_profile: sizeProfile, ...estimates } = estimatesRaw;
+  const { size_profile: sizeProfile, try_on_focus: tryOnFocus, ...estimates } = estimatesRaw;
 
   const declaredSize =
     product.category === "bottoms"
@@ -50,6 +52,8 @@ export async function POST(req: NextRequest) {
     product.category,
     declaredSize
   );
+
+  const sizeIntelligence = analyzeSizeFit(declaredSize, fitResult);
 
   const variant =
     product.variants.find((v) => v.size === fitResult.recommendedSize) ||
@@ -79,7 +83,9 @@ export async function POST(req: NextRequest) {
     tryon,
     resultUrl,
     fitResult,
+    sizeIntelligence,
     userDeclaredSize: declaredSize ?? null,
+    tryOnFocus: tryOnFocus ?? null,
     product,
     processingTimeMs: processingTimeMs ?? 0,
     aiDisclaimer: "AI-generated preview — results may vary with pose, lighting, and garment type.",
