@@ -22,8 +22,8 @@ def run(cmd: str, cwd: str | None = None) -> None:
     subprocess.check_call(cmd, shell=True, cwd=cwd)
 
 
-def download_core_weights(weights_dir: str, vendor_dir: str) -> None:
-    """Download try-on + pose weights only. Human parser loads lazily on first try-on."""
+def download_core_weights(weights_dir: str) -> None:
+    """Download try-on + pose + human-parser HF files (no GPU init — avoids 78% hang)."""
     dwpose_dir = os.path.join(weights_dir, "dwpose")
     os.makedirs(dwpose_dir, exist_ok=True)
 
@@ -38,8 +38,49 @@ def download_core_weights(weights_dir: str, vendor_dir: str) -> None:
         f"hf_hub_download(repo_id='fashn-ai/DWPose', filename='yolox_l.onnx', local_dir=d); "
         f"hf_hub_download(repo_id='fashn-ai/DWPose', filename='dw-ll_ucoco_384.onnx', local_dir=d); "
         f"print('DWPose OK'); "
-        f"print('Skipping human-parser preload — loads automatically on first try-on')\""
+        f"repo='fashn-ai/fashn-human-parser'; "
+        f"[hf_hub_download(repo_id=repo, filename=f) for f in "
+        f"('config.json','model.safetensors','preprocessor_config.json')]; "
+        f"print('HumanParser weights cached')\""
     )
+
+
+def patch_vendor(vendor_dir: str) -> None:
+    """Kaggle-specific fixes for FASHN vendor code."""
+    mmdit = f"{vendor_dir}/src/fashn_vton/tryon_mmdit.py"
+    if os.path.exists(mmdit):
+        with open(mmdit) as f:
+            src = f.read()
+        if "float64" in src:
+            with open(mmdit, "w") as f:
+                f.write(src.replace("float64", "float32"))
+
+    pipeline_py = f"{vendor_dir}/src/fashn_vton/pipeline.py"
+    if not os.path.exists(pipeline_py):
+        return
+    with open(pipeline_py) as f:
+        src = f.read()
+    needle = 'hp_device = "cuda" if self.device.type == "cuda" else "cpu"'
+    replacement = (
+        'hp_device = os.environ.get("VTO_HP_DEVICE") or '
+        '("cuda" if self.device.type == "cuda" else "cpu")'
+    )
+    if needle in src and replacement not in src:
+        with open(pipeline_py, "w") as f:
+            f.write(src.replace(needle, replacement))
+        print("Patched FASHN pipeline: human parser respects VTO_HP_DEVICE", flush=True)
+
+
+def preload_pipeline(vto_dir: str) -> None:
+    """Load all models before first user request (human parser on CPU to save VRAM)."""
+    print("\n[3.5/4] Pre-loading AI pipeline (~3-8 min first time)...", flush=True)
+    print("  Human parser runs on CPU (saves T4 VRAM for try-on model)", flush=True)
+    sys.path.insert(0, vto_dir)
+    os.chdir(vto_dir)
+    from app.main import get_pipeline
+
+    get_pipeline()
+    print("AI pipeline ready — try-ons should take ~1-3 min now", flush=True)
 
 
 def core_weights_ready(weights_dir: str) -> bool:
@@ -100,13 +141,7 @@ def main() -> None:
             "git clone --depth 1 https://github.com/fashn-ai/fashn-vton-1.5.git "
             f"{vendor_dir}"
         )
-        mmdit = f"{vendor_dir}/src/fashn_vton/tryon_mmdit.py"
-        if os.path.exists(mmdit):
-            with open(mmdit) as f:
-                src = f.read()
-            if "float64" in src:
-                with open(mmdit, "w") as f:
-                    f.write(src.replace("float64", "float32"))
+    patch_vendor(vendor_dir)
 
     # Skip mediapipe on Kaggle — conflicts with protobuf/tensorflow; body validation uses basic fallback
     run("pip install -q pyngrok uvicorn[standard] python-multipart rembg")
@@ -116,16 +151,19 @@ def main() -> None:
     os.makedirs(weights_dir, exist_ok=True)
     if not core_weights_ready(weights_dir):
         print("\n[3/4] Downloading core model weights (~2GB, 5-10 min)...", flush=True)
-        download_core_weights(weights_dir, vendor_dir)
+        download_core_weights(weights_dir)
     else:
         print("\n[3/4] Core weights already present — skipping download", flush=True)
-        print("  (Human parser loads on first try-on — do not preload)", flush=True)
 
     os.environ["WEIGHTS_DIR"] = weights_dir
     os.environ["RESULTS_DIR"] = f"{vto_dir}/results"
     os.environ["VTO_NUM_TIMESTEPS"] = os.environ.get("VTO_NUM_TIMESTEPS", "4")
     os.environ["VTO_MAX_IMAGE_SIZE"] = os.environ.get("VTO_MAX_IMAGE_SIZE", "512")
     os.environ["VTO_DEVICE"] = "cuda"
+    # Human parser on CPU avoids T4 VRAM hang at ~78% layer load
+    os.environ["VTO_HP_DEVICE"] = "cpu"
+
+    preload_pipeline(vto_dir)
 
     print("\n[4/4] Starting VTO server in background...", flush=True)
     server = threading.Thread(target=start_vto_server, args=(vto_dir,), daemon=True)

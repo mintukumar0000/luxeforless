@@ -21,6 +21,19 @@ import { Camera, Upload, Sparkles } from "lucide-react";
 
 type Step = "welcome" | "consent" | "capture" | "browse";
 
+const TRYON_PROGRESS_LABELS: Record<string, string> = {
+  queued: "Queued",
+  loading_model: "Loading AI models",
+  generating: "Generating image",
+  done: "Done",
+  error: "Failed",
+};
+
+function formatTryOnProgress(progress: string | null): string {
+  if (!progress) return "";
+  return TRYON_PROGRESS_LABELS[progress] ?? progress.replaceAll("_", " ");
+}
+
 interface TryOnState {
   resultUrl: string;
   productName: string;
@@ -247,8 +260,8 @@ export default function MirrorPage() {
                   <h3 className="font-serif text-lg">Generating AI Try-On</h3>
                   <p className="text-sm text-stone-500">
                     Real AI is running on your GPU session.
-                    {tryOnProgress ? ` Status: ${tryOnProgress}.` : " "}
-                    Usually 1–3 min on Kaggle GPU — don&apos;t close this tab.
+                    {tryOnProgress ? ` ${formatTryOnProgress(tryOnProgress)}.` : " "}
+                    First try-on after a Kaggle restart can take 5–8 min — don&apos;t close this tab.
                   </p>
                 </div>
               </div>

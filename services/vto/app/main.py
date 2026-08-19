@@ -67,8 +67,14 @@ def get_pipeline():
                 f"Run: python vendor/fashn-vton-1.5/scripts/download_weights.py --weights-dir {weights_path}"
             )
         device = _get_device()
-        print(f"Loading VTO pipeline on device: {device}, timesteps: {VTO_NUM_TIMESTEPS}")
+        hp_device = os.environ.get("VTO_HP_DEVICE", "")
+        print(
+            f"Loading VTO pipeline: device={device}, hp_device={hp_device or 'auto'}, "
+            f"timesteps={VTO_NUM_TIMESTEPS}",
+            flush=True,
+        )
         _pipeline = TryOnPipeline(weights_dir=weights_path, device=device)
+        print("VTO pipeline loaded successfully", flush=True)
     return _pipeline
 
 
@@ -202,6 +208,10 @@ def _execute_tryon_job(
         result.images[0].save(filepath)
         complete_job(job_id, f"/v1/results/{filename}", int((time.time() - start) * 1000))
     except Exception as e:
+        import traceback
+
+        print(f"Try-on job {job_id} failed: {e}", flush=True)
+        traceback.print_exc()
         fail_job(job_id, str(e), int((time.time() - start) * 1000))
 
 
