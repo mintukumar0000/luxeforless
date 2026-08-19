@@ -130,7 +130,7 @@ export function InstantSwapControls({
           })}
         </div>
         <p className="text-[11px] text-stone-400">
-          Fabric only — white logos stay white. Skin, hair & studio background untouched.
+          Quick fabric preview — for photo-realistic color, tap &quot;Run AI color&quot; below (uses GPU).
         </p>
       </div>
     </div>

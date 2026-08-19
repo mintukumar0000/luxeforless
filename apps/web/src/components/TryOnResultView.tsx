@@ -84,7 +84,7 @@ export function TryOnResultView({
               category={swap.category}
             />
             <p className="text-xs text-stone-400 mt-2 text-center">
-              AI base · {(processingTimeMs / 1000).toFixed(1)}s · Size/color swaps are instant
+              AI-generated preview · {(processingTimeMs / 1000).toFixed(1)}s · Not an exact fit guarantee
             </p>
           </div>
 

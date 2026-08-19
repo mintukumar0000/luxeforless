@@ -1,5 +1,6 @@
 /**
- * Canvas-based instant garment preview — size + color without touching skin, hair, logo, or background.
+ * Canvas instant garment preview — flood-fill fabric mask + feathered recolor.
+ * Honest limit: true realism for new colors requires a second AI run per color.
  */
 
 import { colorOptionById, sizeToPreviewScale } from "./instant-preview";
@@ -25,66 +26,97 @@ function lum(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+function colorDist(r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number {
+  return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+}
+
 function isStudioBackground(r: number, g: number, b: number): boolean {
   const l = lum(r, g, b);
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
-  return l > 198 && spread < 28;
+  return l > 196 && spread < 32;
 }
 
 function isSkinTone(r: number, g: number, b: number): boolean {
   const y = lum(r, g, b);
-  if (y < 40 || y > 245) return false;
+  if (y < 38 || y > 248) return false;
   const cr = 128 + 0.5 * r - 0.419 * g - 0.081 * b;
   const cb = 128 - 0.169 * r - 0.331 * g + 0.5 * b;
-  if (cr >= 135 && cr <= 175 && cb >= 80 && cb <= 125) return true;
-  if (r > 100 && g > 50 && b > 25 && r > g && r > b && r - g > 10) return true;
+  if (cr >= 133 && cr <= 178 && cb >= 78 && cb <= 128 && y > 48) return true;
+  if (r > 95 && g > 48 && b > 28 && r > g && r > b && r - g > 8 && y < 235) return true;
   return false;
 }
 
-/** White / light print, logo, or graphic — always keep original pixels. */
 function isLogoOrPrint(r: number, g: number, b: number): boolean {
   const l = lum(r, g, b);
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
-  if (l > 175) return true;
-  if (l > 125 && spread < 60) return true;
+  if (l > 168) return true;
+  if (l > 118 && spread < 65) return true;
   return false;
 }
 
 function garmentRegion(category: GarmentCategory, w: number, h: number): Region {
   if (category === "tops") {
     return {
-      x0: Math.floor(w * 0.14),
-      y0: Math.floor(h * 0.24),
-      x1: Math.floor(w * 0.86),
-      y1: Math.floor(h * 0.56),
+      x0: Math.floor(w * 0.1),
+      y0: Math.floor(h * 0.17),
+      x1: Math.floor(w * 0.9),
+      y1: Math.floor(h * 0.6),
       cx: w * 0.5,
-      cy: h * 0.38,
+      cy: h * 0.36,
     };
   }
   if (category === "bottoms") {
     return {
-      x0: Math.floor(w * 0.16),
-      y0: Math.floor(h * 0.5),
-      x1: Math.floor(w * 0.84),
-      y1: Math.floor(h * 0.9),
+      x0: Math.floor(w * 0.12),
+      y0: Math.floor(h * 0.46),
+      x1: Math.floor(w * 0.88),
+      y1: Math.floor(h * 0.93),
       cx: w * 0.5,
       cy: h * 0.7,
     };
   }
   return {
-    x0: Math.floor(w * 0.14),
-    y0: Math.floor(h * 0.24),
-    x1: Math.floor(w * 0.86),
-    y1: Math.floor(h * 0.9),
+    x0: Math.floor(w * 0.1),
+    y0: Math.floor(h * 0.17),
+    x1: Math.floor(w * 0.9),
+    y1: Math.floor(h * 0.93),
     cx: w * 0.5,
-    cy: h * 0.55,
+    cy: h * 0.52,
   };
 }
 
 function inHeadZone(x: number, y: number, w: number, h: number): boolean {
-  const nx = (x - w * 0.5) / (w * 0.22);
-  const ny = (y - h * 0.12) / (h * 0.14);
-  return ny < 1 && nx * nx + ny * ny < 1.2;
+  const nx = (x - w * 0.5) / (w * 0.24);
+  const ny = (y - h * 0.11) / (h * 0.13);
+  return ny < 1 && nx * nx + ny * ny < 1.15;
+}
+
+function sampleGarmentColor(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  region: Region
+): [number, number, number] {
+  const samples: [number, number, number][] = [];
+  const yStart = Math.floor(region.y0 + (region.y1 - region.y0) * 0.25);
+  const yEnd = Math.floor(region.y0 + (region.y1 - region.y0) * 0.65);
+  for (let y = yStart; y < yEnd; y += 4) {
+    for (let x = region.x0 + 8; x < region.x1 - 8; x += 4) {
+      const p = (y * w + x) * 4;
+      const r = data[p];
+      const g = data[p + 1];
+      const b = data[p + 2];
+      if (isStudioBackground(r, g, b) || isSkinTone(r, g, b) || isLogoOrPrint(r, g, b)) continue;
+      if (lum(r, g, b) < 0.75) samples.push([r, g, b]);
+    }
+  }
+  if (!samples.length) return [30, 30, 30];
+  const avg = samples.reduce(
+    (acc, [r, g, b]) => [acc[0] + r, acc[1] + g, acc[2] + b],
+    [0, 0, 0]
+  );
+  const n = samples.length;
+  return [Math.round(avg[0] / n), Math.round(avg[1] / n), Math.round(avg[2] / n)];
 }
 
 function buildFabricMask(
@@ -92,57 +124,121 @@ function buildFabricMask(
   w: number,
   h: number,
   category: GarmentCategory
-): Uint8Array {
+): Float32Array {
   const region = garmentRegion(category, w, h);
-  const mask = new Uint8Array(w * h);
-  const skinBuf = new Uint8Array(w * h);
+  const garmentColor = sampleGarmentColor(data, w, h, region);
+  const threshold = category === "tops" ? 72 : 68;
 
+  const blocked = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      const p = i * 4;
-      if (isSkinTone(data[p], data[p + 1], data[p + 2])) skinBuf[i] = 1;
-    }
-  }
-
-  const skinDilated = new Uint8Array(w * h);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const i = y * w + x;
-      if (
-        skinBuf[i] ||
-        skinBuf[i - 1] ||
-        skinBuf[i + 1] ||
-        skinBuf[i - w] ||
-        skinBuf[i + w]
-      ) {
-        skinDilated[i] = 1;
-      }
-    }
-  }
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      if (x < region.x0 || x > region.x1 || y < region.y0 || y > region.y1) continue;
-      if (inHeadZone(x, y, w, h)) continue;
-
       const p = i * 4;
       const r = data[p];
       const g = data[p + 1];
       const b = data[p + 2];
-
-      if (isStudioBackground(r, g, b)) continue;
-      if (skinDilated[i]) continue;
-      if (isLogoOrPrint(r, g, b)) continue;
-
-      const l = lum(r, g, b);
-      const spread = Math.max(r, g, b) - Math.min(r, g, b);
-      if (l < 195 && (l < 120 || spread > 6)) mask[i] = 1;
+      if (inHeadZone(x, y, w, h)) blocked[i] = 1;
+      else if (isSkinTone(r, g, b)) blocked[i] = 1;
+      else if (isStudioBackground(r, g, b)) blocked[i] = 1;
+      else if (isLogoOrPrint(r, g, b)) blocked[i] = 1;
     }
   }
 
-  return mask;
+  // Dilate skin/logo block
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Uint8Array(blocked);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        if (
+          blocked[i] ||
+          blocked[i - 1] ||
+          blocked[i + 1] ||
+          blocked[i - w] ||
+          blocked[i + w]
+        ) {
+          next[i] = 1;
+        }
+      }
+    }
+    blocked.set(next);
+  }
+
+  const raw = new Uint8Array(w * h);
+  const queue: number[] = [];
+
+  // Seed flood-fill from torso + collar band
+  for (let y = region.y0; y <= region.y1; y += 3) {
+    for (let x = region.x0; x <= region.x1; x += 3) {
+      const i = y * w + x;
+      if (blocked[i]) continue;
+      const p = i * 4;
+      const r = data[p];
+      const g = data[p + 1];
+      const b = data[p + 2];
+      if (colorDist(r, g, b, garmentColor[0], garmentColor[1], garmentColor[2]) < threshold) {
+        raw[i] = 1;
+        queue.push(i);
+      }
+    }
+  }
+
+  while (queue.length) {
+    const i = queue.pop()!;
+    const x = i % w;
+    const y = (i - x) / w;
+    const neighbors = [
+      i - 1,
+      i + 1,
+      i - w,
+      i + w,
+    ];
+    for (const ni of neighbors) {
+      if (ni < 0 || ni >= w * h) continue;
+      const nx = ni % w;
+      const ny = (ni - nx) / w;
+      if (Math.abs(nx - x) + Math.abs(ny - y) !== 1) continue;
+      if (nx < region.x0 - 4 || nx > region.x1 + 4 || ny < region.y0 - 6 || ny > region.y1 + 4) continue;
+      if (raw[ni] || blocked[ni]) continue;
+      const p = ni * 4;
+      const r = data[p];
+      const g = data[p + 1];
+      const b = data[p + 2];
+      if (isLogoOrPrint(r, g, b)) continue;
+      if (colorDist(r, g, b, garmentColor[0], garmentColor[1], garmentColor[2]) < threshold + 18) {
+        raw[ni] = 1;
+        queue.push(ni);
+      }
+    }
+  }
+
+  // Feather mask edges (soft blend, removes hard horizontal seam)
+  const feather = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!raw[i]) {
+        feather[i] = 0;
+        continue;
+      }
+      let minDist = 8;
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const ni = ny * w + nx;
+          if (!raw[ni]) {
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < minDist) minDist = d;
+          }
+        }
+      }
+      feather[i] = Math.min(1, minDist / 4);
+    }
+  }
+
+  return feather;
 }
 
 function sampleBilinear(
@@ -164,11 +260,10 @@ function applyFabricColor(
   b: number,
   target: [number, number, number]
 ): [number, number, number] {
-  const origL = Math.max(lum(r, g, b), 1) / 255;
+  const origL = Math.max(lum(r, g, b), 0.02);
   const [tr, tg, tb] = target;
-  const targetL = Math.max(lum(tr, tg, tb), 1) / 255;
-  const shade = origL / Math.max(targetL, 0.08);
-  const fold = 0.72 + shade * 0.28;
+  const targetL = Math.max(lum(tr, tg, tb), 0.08);
+  const fold = 0.68 + (origL / targetL) * 0.32;
   return [
     Math.min(255, Math.round(tr * fold)),
     Math.min(255, Math.round(tg * fold)),
@@ -230,7 +325,8 @@ export async function processGarmentInstantPreview(opts: InstantPreviewOptions):
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      if (!fabricMask[i]) continue;
+      const alpha = fabricMask[i];
+      if (alpha <= 0) continue;
 
       const p = i * 4;
       let sx = x;
@@ -240,15 +336,20 @@ export async function processGarmentInstantPreview(opts: InstantPreviewOptions):
         sy = region.cy + (y - region.cy) / scaleRatio;
       }
 
-      let [r, g, b] = sampleBilinear(src.data, w, h, sx, sy);
+      const [sr, sg, sb] = sampleBilinear(src.data, w, h, sx, sy);
+      const [or, og, ob] = [src.data[p], src.data[p + 1], src.data[p + 2]];
 
-      if (needsColor && !isLogoOrPrint(r, g, b) && !isSkinTone(r, g, b) && !isStudioBackground(r, g, b)) {
-        [r, g, b] = applyFabricColor(r, g, b, targetRgb);
+      if (needsColor && !isLogoOrPrint(sr, sg, sb)) {
+        const [nr, ng, nb] = applyFabricColor(sr, sg, sb, targetRgb);
+        const t = alpha;
+        out.data[p] = Math.round(or * (1 - t) + nr * t);
+        out.data[p + 1] = Math.round(og * (1 - t) + ng * t);
+        out.data[p + 2] = Math.round(ob * (1 - t) + nb * t);
+      } else if (needsSize) {
+        out.data[p] = sr;
+        out.data[p + 1] = sg;
+        out.data[p + 2] = sb;
       }
-
-      out.data[p] = r;
-      out.data[p + 1] = g;
-      out.data[p + 2] = b;
     }
   }
 
