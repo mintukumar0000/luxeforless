@@ -25,8 +25,8 @@ MOCK_VTO = os.environ.get("MOCK_VTO", "false").lower() == "true"
 VTO_PREPROCESS_PERSON = os.environ.get("VTO_PREPROCESS_PERSON", "true").lower() == "true"
 VTO_ENHANCE_RESULT = os.environ.get("VTO_ENHANCE_RESULT", "true").lower() == "true"
 # 20 steps = balanced quality on GPU; 4 = fast/low quality (8GB Mac)
-VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "20"))
-VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "768"))
+VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "24"))
+VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "1080"))
 
 # NOTE: Do NOT set PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 — it causes
 # "invalid low watermark ratio 1.4" on Apple Silicon. Set in shell before
@@ -163,9 +163,17 @@ def _decode_image(data: str, *, for_person: bool = False) -> Image.Image:
         data = data.split(",", 1)[1]
     raw = base64.b64decode(data)
     img = Image.open(io.BytesIO(raw)).convert("RGB")
-    limit = min(VTO_MAX_IMAGE_SIZE * 2, 1024) if for_person else VTO_MAX_IMAGE_SIZE
+    limit = min(int(VTO_MAX_IMAGE_SIZE * 1.25), 1280) if for_person else VTO_MAX_IMAGE_SIZE
     img.thumbnail((limit, limit), Image.LANCZOS)
     return img
+
+
+def _should_preprocess_person(img: Image.Image) -> bool:
+    if not VTO_PREPROCESS_PERSON:
+        return False
+    from .person_preprocessing import is_studio_ready
+
+    return not is_studio_ready(img)
 
 
 def _encode_image_b64(img: Image.Image) -> str:
@@ -227,13 +235,10 @@ def _execute_tryon_job(
 
         print(f"Try-on job {job_id}: preprocessing", flush=True)
         update_job(job_id, progress="preprocessing")
-        if VTO_PREPROCESS_PERSON:
+        if _should_preprocess_person(person):
             from .person_preprocessing import preprocess_person_for_vto
 
-            person = preprocess_person_for_vto(
-                person,
-                max_size=min(VTO_MAX_IMAGE_SIZE * 2, 1024),
-            )
+            person = preprocess_person_for_vto(person, max_size=VTO_MAX_IMAGE_SIZE)
         person.thumbnail((VTO_MAX_IMAGE_SIZE, VTO_MAX_IMAGE_SIZE), Image.LANCZOS)
 
         print(f"Try-on job {job_id}: loading_model", flush=True)
@@ -335,7 +340,7 @@ async def preprocess_person(image: UploadFile = File(...)):
 
     contents = await image.read()
     img = Image.open(io.BytesIO(contents)).convert("RGB")
-    studio = preprocess_person_for_vto(img, max_size=1024)
+    studio = preprocess_person_for_vto(img, max_size=VTO_MAX_IMAGE_SIZE)
     return PersonPreprocessResponse(
         image=_encode_image_b64(studio),
         background_removed=True,

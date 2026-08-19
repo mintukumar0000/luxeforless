@@ -19,7 +19,6 @@ def _repair_waist_seam(img: Image.Image) -> Image.Image:
             r, g, b = arr[y, x]
             lum = 0.299 * r + 0.587 * g + 0.114 * b
             chroma = max(r, g, b) - min(r, g, b)
-            # Silver seam artifact: bright, low-chroma band at waist
             if lum > 130 and chroma < 45:
                 above_y = max(y0 - 8, 0)
                 below_y = min(y1 + 8, h - 1)
@@ -30,19 +29,36 @@ def _repair_waist_seam(img: Image.Image) -> Image.Image:
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
-def _smooth_skin_edges(img: Image.Image) -> Image.Image:
-    """Very light pass to reduce harsh cloth–skin boundaries."""
-    return img.filter(ImageFilter.SMOOTH_MORE)
+def _clean_background_fringe(img: Image.Image) -> Image.Image:
+    """Remove rembg / compositing ghosts — pale halos beside arms and body."""
+    arr = np.array(img.convert("RGB"), dtype=np.float32)
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    chroma = np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
+
+    pure_bg = lum > 248
+    fringe = (lum > 198) & (lum <= 248) & (chroma < 38)
+    arr[fringe] = 255.0
+
+    # Desaturate low-chroma mid-tones outside the subject core (vertical smear artifacts)
+    side_margin = int(arr.shape[1] * 0.08)
+    edge_cols = np.zeros(arr.shape[:2], dtype=bool)
+    edge_cols[:, :side_margin] = True
+    edge_cols[:, -side_margin:] = True
+    smear = edge_cols & (lum > 175) & (lum < 245) & (chroma < 55)
+    arr[smear] = 255.0
+
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
 def enhance_tryon_result(img: Image.Image) -> Image.Image:
-    """Sharpen, balance colors, and repair common VTO seam artifacts."""
+    """Sharpen, balance colors, clean background fringe, repair waist seam."""
     out = img.convert("RGB")
+    out = _clean_background_fringe(out)
     out = _repair_waist_seam(out)
-    out = ImageEnhance.Contrast(out).enhance(1.08)
-    out = ImageEnhance.Sharpness(out).enhance(1.15)
-    out = ImageEnhance.Color(out).enhance(1.05)
-    out = ImageEnhance.Brightness(out).enhance(1.01)
-    out = out.filter(ImageFilter.UnsharpMask(radius=1.0, percent=70, threshold=4))
-    out = _smooth_skin_edges(out)
+    out = ImageEnhance.Contrast(out).enhance(1.06)
+    out = ImageEnhance.Sharpness(out).enhance(1.2)
+    out = ImageEnhance.Color(out).enhance(1.04)
+    out = ImageEnhance.Brightness(out).enhance(1.02)
+    out = out.filter(ImageFilter.UnsharpMask(radius=1.2, percent=85, threshold=3))
     return out

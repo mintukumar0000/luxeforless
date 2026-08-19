@@ -19,7 +19,7 @@
 |----------|---------|--------|
 | `VTO_SKIP_PRELOAD` | off | Skip startup preload (loads on first try-on instead) |
 | `VTO_FAST_MODE` | off | 8 steps @ 512px for faster tests |
-| `VTO_NUM_TIMESTEPS` | `20` | Quality (20 @ 768px) |
+| `VTO_NUM_TIMESTEPS` | `24` | Quality (24 @ 1080px) |
 | `VTO_HP_DEVICE` | `cpu` | Human parser on CPU (saves T4 VRAM) |
 
 See `luxeforless_vto.ipynb` cell 1 for the full bootstrap script.
