@@ -7,4 +7,7 @@ opencv-python>=4.5.0
 mediapipe>=0.10.9
 rembg>=2.0.50
 requests>=2.31.0
+# Optional for VTO_ULTRA_MODE (Real-ESRGAN 2x upscale; Kaggle bootstrap installs these)
+# basicsr>=1.4.2
+# realesrgan>=0.3.0
 -e ../../vendor/fashn-vton-1.5

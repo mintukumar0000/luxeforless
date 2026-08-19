@@ -101,7 +101,7 @@ def wait_for_pipeline_loaded(timeout: int = 1800) -> bool:
             with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3) as resp:
                 data = json.loads(resp.read().decode())
                 if data.get("pipeline_loaded"):
-                    print("AI pipeline ready — try-ons should take ~3-6 min now", flush=True)
+                    print("AI pipeline ready — ultra try-ons ~8–15 min each", flush=True)
                     return True
         except (OSError, urllib.error.URLError):
             pass
@@ -195,11 +195,28 @@ def main() -> None:
     if os.environ.get("VTO_FAST_MODE", "").lower() in ("1", "true", "yes"):
         os.environ.setdefault("VTO_NUM_TIMESTEPS", "8")
         os.environ.setdefault("VTO_MAX_IMAGE_SIZE", "512")
+        os.environ["VTO_ULTRA_MODE"] = "false"
+        os.environ["VTO_UPSCALE_FACTOR"] = "0"
         print("FAST MODE: 8 steps @ 512px (~60-120s/try-on, lower quality)", flush=True)
     else:
-        os.environ.setdefault("VTO_NUM_TIMESTEPS", "24")
+        os.environ.setdefault("VTO_ULTRA_MODE", "true")
+        os.environ.setdefault("VTO_NUM_TIMESTEPS", "32")
         os.environ.setdefault("VTO_MAX_IMAGE_SIZE", "1280")
-        print("QUALITY MODE: 24 steps @ up to 1280px, original background kept (~5-10 min/try-on)", flush=True)
+        os.environ.setdefault("VTO_UPSCALE_FACTOR", "2")
+        print(
+            "ULTRA MODE (no API): 32 steps @ 1280px + 2x upscale (~8-15 min/try-on, ~2560px output)",
+            flush=True,
+        )
+        try:
+            from app.upscale import download_realesrgan_weights
+
+            download_realesrgan_weights(weights_dir)
+        except Exception as exc:
+            print(f"Real-ESRGAN weights skip ({exc}) — Lanczos upscale fallback", flush=True)
+        try:
+            pip_install("basicsr", "realesrgan")
+        except Exception:
+            print("Real-ESRGAN pip optional — using Lanczos upscale if import fails", flush=True)
     os.environ["VTO_PREPROCESS_PERSON"] = "false"
     os.environ["VTO_KEEP_ORIGINAL_BACKGROUND"] = "true"
     os.environ["VTO_IDENTITY_PRESERVE"] = "true"

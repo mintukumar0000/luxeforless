@@ -47,11 +47,13 @@ Your **product moat** is the retail layer (mirror UX, fit scores, outfit builder
 4. Expose port 8000 → stable HTTPS (Cloudflare tunnel or RunPod proxy)
 5. Point Vercel `NEXT_PUBLIC_VTO_SERVICE_URL` to that URL
 
-**Quality boost knobs (self-hosted v1.5):**
+**Quality boost knobs (self-hosted v1.5 — no FASHN API key):**
 ```bash
-VTO_NUM_TIMESTEPS=24        # sharper, +20% time
-VTO_MAX_IMAGE_SIZE=896      # A100 only; may OOM on T4
-VTO_UPSCALE=1               # future: Real-ESRGAN 2x after inference
+VTO_ULTRA_MODE=true         # default on Kaggle: 32 steps + 2x upscale
+VTO_NUM_TIMESTEPS=32        # sharper, +30% time vs 24 steps
+VTO_MAX_IMAGE_SIZE=1280     # T4 may need 896 if OOM
+VTO_UPSCALE_FACTOR=2        # Real-ESRGAN 2x (Lanczos fallback if pip fails)
+VTO_UPSCALE_ENGINE=auto     # auto | lanczos
 ```
 
 ### Tier B — FASHN API (fastest to 4K, no GPU ops)
@@ -83,7 +85,7 @@ These are **your** differentiators FASHN.ai doesn't ship as a product:
 | Chained full-outfit VTO | ✅ Stage 1 | Top → bottom on same person |
 | Run AI per color SKU | ✅ Stage 1 | Realistic multi-color |
 | Hard pose guardrails | ✅ Stage 1 | Fewer garbage inputs |
-| Real-ESRGAN 2x upscale | 🔜 Stage 2 | Sharper output without 4K diffusion |
+| Real-ESRGAN 2x upscale | ✅ Ultra mode (Kaggle) | ~2560px output without FASHN API |
 | SAM garment mask for color preview | 🔜 Optional | Better instant preview |
 | VTO router (local/cloud/max) | 🔜 Stage 3 | Best quality per tier |
 

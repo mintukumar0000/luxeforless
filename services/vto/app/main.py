@@ -27,8 +27,9 @@ VTO_KEEP_ORIGINAL_BACKGROUND = os.environ.get("VTO_KEEP_ORIGINAL_BACKGROUND", "t
 VTO_IDENTITY_PRESERVE = os.environ.get("VTO_IDENTITY_PRESERVE", "true").lower() == "true"
 VTO_BACKEND = os.environ.get("VTO_BACKEND", "auto").lower()
 VTO_ENHANCE_RESULT = os.environ.get("VTO_ENHANCE_RESULT", "true").lower() == "true"
-# 24 steps @ up to 1280px — preserve input scene (no studio rembg)
-VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "24"))
+VTO_ULTRA_MODE = os.environ.get("VTO_ULTRA_MODE", "true").lower() == "true"
+# Ultra local: 32 steps @ 1280px + 2x upscale (~2560px long edge) — no FASHN API needed
+VTO_NUM_TIMESTEPS = int(os.environ.get("VTO_NUM_TIMESTEPS", "32" if VTO_ULTRA_MODE else "24"))
 VTO_MAX_IMAGE_SIZE = int(os.environ.get("VTO_MAX_IMAGE_SIZE", "1280"))
 
 # NOTE: Do NOT set PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 — it causes
@@ -220,6 +221,12 @@ def _run_inference(pipeline, person, garment, category, garment_photo_type):
             torch.mps.empty_cache()
 
 
+def _upscale_factor() -> int:
+    from .upscale import get_upscale_factor
+
+    return get_upscale_factor()
+
+
 @app.get("/health")
 async def health():
     import torch
@@ -238,6 +245,8 @@ async def health():
         "vto_backend": VTO_BACKEND,
         "fashn_api": _fashn_configured(),
         "enhance_result": VTO_ENHANCE_RESULT,
+        "ultra_mode": VTO_ULTRA_MODE,
+        "upscale_factor": _upscale_factor(),
     }
 
 
@@ -312,12 +321,26 @@ def _execute_tryon_job(
             print(f"Try-on job {job_id}: identity preserve composite", flush=True)
             out_img = preserve_identity(person_original, out_img, category)
 
-        filename = f"{job_id}.png"
-        filepath = os.path.join(RESULTS_DIR, filename)
         if VTO_ENHANCE_RESULT:
             from .result_enhancement import enhance_tryon_result
 
             out_img = enhance_tryon_result(out_img, preserve_scene=preserve_background or VTO_KEEP_ORIGINAL_BACKGROUND)
+
+        upscale_factor = _upscale_factor()
+        if upscale_factor > 1:
+            from .upscale import upscale_result
+
+            update_job(job_id, progress="upscaling")
+            print(f"Try-on job {job_id}: {upscale_factor}x ultra upscale", flush=True)
+            out_img = upscale_result(out_img, upscale_factor)
+            if VTO_IDENTITY_PRESERVE and (preserve_background or VTO_KEEP_ORIGINAL_BACKGROUND):
+                from .identity_preservation import preserve_identity
+
+                orig_hires = upscale_result(person_original, upscale_factor)
+                out_img = preserve_identity(orig_hires, out_img, category)
+
+        filename = f"{job_id}.png"
+        filepath = os.path.join(RESULTS_DIR, filename)
         out_img.save(filepath, format="PNG", compress_level=1)
         complete_job(job_id, f"/v1/results/{filename}", int((time.time() - start) * 1000))
     except Exception as e:

@@ -134,8 +134,8 @@ def preserve_identity(
 
     left_skin = _skin_in_regions(orig, regions.get("left_arm", np.zeros((h, w))))
     right_skin = _skin_in_regions(orig, regions.get("right_arm", np.zeros((h, w))))
-    preserve = np.maximum(preserve, left_skin * 0.88)
-    preserve = np.maximum(preserve, right_skin * 0.88)
+    preserve = np.maximum(preserve, left_skin * 0.94)
+    preserve = np.maximum(preserve, right_skin * 0.94)
 
     # Fix waist blob: where generated differs strongly from original in waist band, prefer original
     if "waist_band" in regions:
