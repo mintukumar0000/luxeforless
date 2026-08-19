@@ -275,14 +275,13 @@ export function AnimatedTryOnImage({
   swapFlash,
   isApproximateColor,
   processing,
-  category,
 }: {
   src: string;
   alt: string;
   swapFlash: boolean;
   isApproximateColor: boolean;
   processing?: boolean;
-  category: string;
+  category?: string;
 }) {
   const [layers, setLayers] = useState<{ src: string; visible: boolean }[]>([
     { src, visible: true },

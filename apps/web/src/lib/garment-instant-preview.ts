@@ -379,7 +379,7 @@ function applyFabricColor(
   b: number,
   target: [number, number, number]
 ): [number, number, number] {
-  const [oh, os, ol] = rgbToHsl(r, g, b);
+  const [, os, ol] = rgbToHsl(r, g, b);
   const [th, ts] = rgbToHsl(target[0], target[1], target[2]);
   const sat = Math.min(1, ts * 0.82 + os * 0.18);
   const light = Math.max(0.04, Math.min(0.92, ol));
