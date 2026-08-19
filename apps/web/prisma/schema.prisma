@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProductCategory {
+  tops
+  bottoms
+  one_pieces
+}
+
+enum GarmentPhotoType {
+  model
+  flat_lay
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  stores    Store[]
+  @@map("organizations")
+}
+
+model Store {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  slug           String
+  address        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mirrors        Mirror[]
+  products       Product[]
+  sessions       Session[]
+  @@unique([organizationId, slug])
+  @@map("stores")
+}
+
+model Mirror {
+  id        String   @id @default(cuid())
+  storeId   String   @map("store_id")
+  name      String
+  deviceId  String?  @unique @map("device_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sessions  Session[]
+  @@map("mirrors")
+}
+
+model Product {
+  id          String          @id @default(cuid())
+  storeId     String          @map("store_id")
+  name        String
+  brand       String?
+  description String?
+  category    ProductCategory
+  basePrice   Decimal         @map("base_price") @db.Decimal(10, 2)
+  color       String
+  pattern     String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  store         Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variants      ProductVariant[]
+  garmentAssets GarmentAsset[]
+  sizeChart     SizeChartEntry[]
+  @@map("products")
+}
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  productId String   @map("product_id")
+  size      String
+  sku       String?
+  stockQty  Int      @default(0) @map("stock_qty")
+  priceAdj  Decimal  @default(0) @map("price_adj") @db.Decimal(10, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tryons          Tryon[]
+  outfitItems     OutfitItem[]
+  analyticsEvents AnalyticsEvent[]
+  @@unique([productId, size])
+  @@map("product_variants")
+}
+
+model SizeChartEntry {
+  id         String  @id @default(cuid())
+  productId  String  @map("product_id")
+  size       String
+  chestCm    Float?  @map("chest_cm")
+  shoulderCm Float?  @map("shoulder_cm")
+  waistCm    Float?  @map("waist_cm")
+  hipCm      Float?  @map("hip_cm")
+  lengthCm   Float?  @map("length_cm")
+  inseamCm   Float?  @map("inseam_cm")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@unique([productId, size])
+  @@map("size_chart_entries")
+}
+
+model GarmentAsset {
+  id               String           @id @default(cuid())
+  productId        String           @map("product_id")
+  imageUrl         String           @map("image_url")
+  vtoReadyUrl      String?          @map("vto_ready_url")
+  garmentPhotoType GarmentPhotoType @default(flat_lay) @map("garment_photo_type")
+  isPrimary        Boolean          @default(true) @map("is_primary")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@map("garment_assets")
+}
+
+model Session {
+  id              String    @id @default(cuid())
+  storeId         String    @map("store_id")
+  mirrorId        String?   @map("mirror_id")
+  consentGiven    Boolean   @default(false) @map("consent_given")
+  consentAt       DateTime? @map("consent_at")
+  captureImageUrl String?   @map("capture_image_url")
+  expiresAt       DateTime  @map("expires_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  store           Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  mirror          Mirror?   @relation(fields: [mirrorId], references: [id])
+  tryons          Tryon[]
+  outfits         Outfit[]
+  bodyEstimates   BodyEstimate[]
+  analyticsEvents AnalyticsEvent[]
+  @@map("sessions")
+}
+
+model BodyEstimate {
+  id        String   @id @default(cuid())
+  sessionId String   @map("session_id")
+  estimates Json
+  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime @map("expires_at")
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@map("body_estimates")
+}
+
+model Tryon {
+  id               String   @id @default(cuid())
+  sessionId        String   @map("session_id")
+  productVariantId String   @map("product_variant_id")
+  resultUrl        String?  @map("result_url")
+  processingTimeMs Int?     @map("processing_time_ms")
+  fitScore         Float?   @map("fit_score")
+  recommendedSize  String?  @map("recommended_size")
+  createdAt        DateTime @default(now()) @map("created_at")
+  session        Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+  @@map("tryons")
+}
+
+model Outfit {
+  id         String   @id @default(cuid())
+  sessionId  String   @map("session_id")
+  name       String?
+  totalPrice Decimal  @map("total_price") @db.Decimal(10, 2)
+  createdAt  DateTime @default(now()) @map("created_at")
+  session Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  items   OutfitItem[]
+  @@map("outfits")
+}
+
+model OutfitItem {
+  id               String @id @default(cuid())
+  outfitId         String @map("outfit_id")
+  productVariantId String @map("product_variant_id")
+  outfit         Outfit         @relation(fields: [outfitId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+  @@map("outfit_items")
+}
+
+model AnalyticsEvent {
+  id               String   @id @default(cuid())
+  sessionId        String   @map("session_id")
+  eventType        String   @map("event_type")
+  productVariantId String?  @map("product_variant_id")
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  session        Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productVariant ProductVariant? @relation(fields: [productVariantId], references: [id])
+  @@map("analytics_events")
+}

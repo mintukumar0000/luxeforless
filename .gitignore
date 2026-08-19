@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Build
+.next/
+dist/
+build/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# Storage & weights
+storage/
+services/vto/weights/
+services/vto/results/
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Prisma
+apps/web/prisma/*.db
+
+# Test outputs
+outputs/

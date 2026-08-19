@@ -1,0 +1,9 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pillow>=9.0.0
+numpy>=1.21.0
+opencv-python>=4.5.0
+mediapipe>=0.10.9
+rembg>=2.0.50
+-e ../../vendor/fashn-vton-1.5

@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: luxeforless
+      POSTGRES_PASSWORD: luxeforless
+      POSTGRES_DB: luxeforless
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luxeforless"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  vto:
+    build:
+      context: .
+      dockerfile: services/vto/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/vto/weights:/app/weights
+      - ./storage/vto-results:/app/results
+    environment:
+      WEIGHTS_DIR: /app/weights
+      RESULTS_DIR: /app/results
+    profiles:
+      - vto-gpu
+
+volumes:
+  postgres_data:
