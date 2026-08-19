@@ -10,7 +10,7 @@ import { TryOnResultView } from "@/components/TryOnResultView";
 import { OutfitBuilder } from "@/components/OutfitBuilder";
 import { FitResult } from "@/lib/fit-scoring";
 import { BodyEstimates } from "@/lib/fit-scoring";
-import { declaredSizeForCategory, SizeProfile } from "@/lib/size-options";
+import { SizeProfile } from "@/lib/size-options";
 import { APP_NAME } from "@/lib/utils";
 import {
   pollTryOnJob,
