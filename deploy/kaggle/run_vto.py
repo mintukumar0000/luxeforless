@@ -48,6 +48,9 @@ def core_weights_ready(weights_dir: str) -> bool:
         and os.path.exists(os.path.join(weights_dir, "dwpose", "yolox_l.onnx"))
         and os.path.exists(os.path.join(weights_dir, "dwpose", "dw-ll_ucoco_384.onnx"))
     )
+
+
+def wait_for_port(port: int, timeout: int = 60) -> bool:
     import socket
 
     for _ in range(timeout):
